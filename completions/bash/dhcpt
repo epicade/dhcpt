@@ -1,3 +1,4 @@
+# shellcheck shell=bash disable=SC2207
 # Bash completion for dhcpt (DHCP Tester)
 # https://github.com/epicade/dhcpt
 
@@ -12,9 +13,10 @@ _dhcpt_bash() {
     case "${prev}" in
         -i|--interface)
             local ifaces=""
-            if [ -d /sys/class/net ]; then
-                ifaces=$(ls /sys/class/net | grep -v '^lo$')
-            fi
+            for ifpath in /sys/class/net/*; do
+                local ifname="${ifpath##*/}"
+                [[ "$ifname" != "lo" && -e "$ifpath" ]] && ifaces+="${ifname} "
+            done
             COMPREPLY=( $(compgen -W "${ifaces}" -- "${cur}") )
             return 0
             ;;
@@ -107,9 +109,10 @@ _dhcpt_bash() {
 
     # Complete available network interfaces
     local ifaces=""
-    if [ -d /sys/class/net ]; then
-        ifaces=$(ls /sys/class/net | grep -v '^lo$')
-    fi
+    for ifpath in /sys/class/net/*; do
+        local ifname="${ifpath##*/}"
+        [[ "$ifname" != "lo" && -e "$ifpath" ]] && ifaces+="${ifname} "
+    done
     COMPREPLY=( $(compgen -W "${ifaces}" -- "${cur}") )
     return 0
 }

@@ -1,6 +1,22 @@
 #!/usr/bin/env bash
 set -e
 
+# Validate modified shell scripts and bash completion files
+changed_bash_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^completions/bash/|\.sh$' || true)
+if [ -n "$changed_bash_files" ]; then
+    echo "[pre-commit] Checking syntax of modified shell/bash scripts..."
+    for file in $changed_bash_files; do
+        if [ -f "$file" ]; then
+            echo "  -> bash -n $file"
+            bash -n "$file"
+            if command -v shellcheck >/dev/null 2>&1; then
+                echo "  -> shellcheck $file"
+                shellcheck "$file"
+            fi
+        fi
+    done
+fi
+
 echo "[pre-commit] Running ruff lint check..."
 ruff check .
 

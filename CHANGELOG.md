@@ -16,6 +16,7 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 * Add --install-skill CLI flag to deploy agent skills for Gemini CLI, Claude Code, or Mistral Vibe
 
 ### Changes
+* Add shell script validation (bash -n and shellcheck) to pre-commit git hook
 * Add ENVIRONMENT section in manpage documenting DHCPT_SERVER_PATTERNS and DIM integration
 * Format DIM reference as [DIM - DNS and IP Management](https://github.com/ionos-core/dim) in README
 * Document both automatic system-wide and user-level shell completion setup in README
