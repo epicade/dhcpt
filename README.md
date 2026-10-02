@@ -52,10 +52,18 @@ sudo dnf install python3-scapy
 ```
 
 ### Install via pip / pipx
+Because crafting raw network packets requires `sudo`, installing `dhcpt` system-wide to `/usr/local/bin` ensures it is accessible within `sudo`'s default `secure_path`:
+
 ```bash
-pip install git+https://github.com/epicade/dhcpt.git
-# or
+# Recommended: System-wide pipx installation into /usr/local/bin
+sudo PIPX_BIN_DIR=/usr/local/bin PIPX_HOME=/opt/pipx pipx install git+https://github.com/epicade/dhcpt.git
+
+# Alternatively, standard system-wide pip install:
+sudo pip install git+https://github.com/epicade/dhcpt.git
+
+# Or install for your local user and create a symlink to /usr/local/bin:
 pipx install git+https://github.com/epicade/dhcpt.git
+sudo ln -s "$HOME/.local/bin/dhcpt" /usr/local/bin/dhcpt
 ```
 
 ### Local Development Installation
@@ -63,6 +71,15 @@ pipx install git+https://github.com/epicade/dhcpt.git
 git clone https://github.com/epicade/dhcpt.git
 cd dhcpt
 python -m pip install -e .[dev]
+
+# Optional: Directly symlink for immediate sudo testing without reinstalling:
+sudo ln -sf "$(pwd)/src/dhcpt/cli.py" /usr/local/bin/dhcpt
+```
+
+To verify your installation and confirm which binary `sudo` executes:
+```bash
+sudo which dhcpt
+readlink -f "$(sudo which dhcpt)"
 ```
 
 ### Passwordless Sudo for Automation & AI Agents (Optional)
@@ -70,7 +87,7 @@ Since raw Layer 2 socket packet crafting requires root privileges, automated bac
 
 To allow passwordless execution **exclusively** for `dhcpt` without granting broad root permissions:
 ```bash
-echo "$USER ALL=(ALL) NOPASSWD: /usr/local/bin/dhcpt, $HOME/.local/bin/dhcpt" | sudo tee /etc/sudoers.d/dhcpt
+echo "$USER ALL=(ALL) NOPASSWD: /usr/local/bin/dhcpt" | sudo tee /etc/sudoers.d/dhcpt
 sudo chmod 0440 /etc/sudoers.d/dhcpt
 ```
 This restricts the passwordless permission strictly to the `dhcpt` executable.
@@ -224,8 +241,8 @@ dhcpt --completion bash > ~/.local/share/bash-completion/completions/dhcpt
 ### Features of the Shell Completion
 * **Network Interfaces:** Autocompletes available physical/virtual interfaces from `/sys/class/net` (with link status and MAC preview).
 * **DHCP Options (`-o <TAB>`):** Autocompletes RFC option codes and human-readable names (`subnet_mask`, `router`, `classless_static_routes`, etc.).
-* **Dynamic IPAM / DIM Integration:** If `ndcli` (the CLI for [DIM IPAM](https://github.com/ionos-core/dim)) is installed on your system, the completion script integrates with DIM:
-  - **DHCP Servers (`-s / --server <TAB>`):** To avoid returning thousands of irrelevant DNS records from your IPAM database, define your organization's DHCP server search patterns in `~/.zshrc`:
+* **Dynamic DIM Integration:** If `ndcli` (the CLI for [DIM (DNS and IP Management)](https://github.com/ionos-core/dim)) is installed on your system, the completion script integrates with DIM:
+  - **DHCP Servers (`-s / --server <TAB>`):** To avoid returning thousands of irrelevant DNS records from your DIM database, define your organization's DHCP server search patterns in `~/.zshrc`:
     ```bash
     export DHCPT_SERVER_PATTERNS="dhcp*.example.com dhcp*.corp.internal"
     ```

@@ -25,8 +25,8 @@ This tool was collaboratively designed, implemented, and tested with Gemini CLI
 (Google Gemini) as an AI development partner for Emilian Schweikert (@epicade).
 
 Features:
-- Interactive interface selection: If no interface is passed, prompts an
-  interactive menu with the best active interface pre-selected as default (just press Enter).
+- Explicit interface targeting: Target interfaces explicitly via -i/--interface
+  or positionally. If omitted, displays an interface table with diagnostics and exits cleanly.
 - Validates network interface existence and operational state via sysfs.
 - DHCP Relay Agent & IP-Helper simulation (Cisco, Juniper, Arista, Linux):
   * Target specific dedicated DHCP servers via Layer 3 unicast (-s / --server).

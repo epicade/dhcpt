@@ -41,6 +41,38 @@
 
 ---
 
+## Development & Live-Testing Workflow
+
+### 1. Instant Live-Testing via Symlink
+To test code modifications instantly with `sudo dhcpt` without having to reinstall the package or run editable pip installs after every edit, symlink the CLI script directly to `/usr/local/bin`:
+```bash
+# Symlink repo source directly into /usr/local/bin (accessible in sudo secure_path):
+sudo ln -sf "$(pwd)/src/dhcpt/cli.py" /usr/local/bin/dhcpt
+
+# Or symlink to your personal scripte directory:
+ln -sf "$(pwd)/src/dhcpt/cli.py" ~/scripte/dhcpt
+```
+
+### 2. Verifying Active Installation & Binary Resolution
+To verify whether `dhcpt` is properly installed and to confirm which exact script is executed by both your regular user and `sudo`:
+```bash
+# 1. Check user-level resolution:
+which dhcpt
+readlink -f "$(which dhcpt)"
+
+# 2. Check sudo resolution (respecting /etc/sudoers secure_path):
+sudo which dhcpt
+sudo readlink -f "$(sudo which dhcpt)"
+
+# 3. Verify execution without sending network traffic:
+dhcpt --version
+dhcpt --list-interfaces
+dhcpt --list-options
+```
+If `sudo readlink -f "$(sudo which dhcpt)"` points to `.../src/dhcpt/cli.py`, every edit you save in the repository is immediately executed by `sudo dhcpt`.
+
+---
+
 ## Testing & Quality Assurance
 
 Before committing any change:

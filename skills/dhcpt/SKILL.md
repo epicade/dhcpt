@@ -23,27 +23,56 @@ Trigger this skill whenever you need to:
 ## Privileges & Prerequisites
 
 * **Root Privileges:** Layer 2 raw packet crafting (`AF_PACKET`) requires `sudo`.
-* **Path:** `/usr/local/bin/dhcpt` or `~/scripte/dhcpt`.
-* **Passwordless Execution for AI Agents / Automation:** If running non-interactively or from AI CLI agents (Gemini CLI, Claude Code), a scoped rule in `/etc/sudoers.d/dhcpt` (`<user> ALL=(ALL) NOPASSWD: /usr/local/bin/dhcpt, <home>/scripte/dhcpt`) prevents password prompt blocks.
+* **Path:** `/usr/local/bin/dhcpt` (system-wide) or user symlink from `~/.local/bin/dhcpt`.
+
+### Installation (If `dhcpt` is not installed)
+If `command -v dhcpt` fails on the target system, install it:
+```bash
+# 1. Install Scapy prerequisite:
+# Debian / Ubuntu:
+sudo apt update && sudo apt install -y python3-scapy
+# RHEL / Rocky / AlmaLinux / Oracle Linux:
+sudo dnf install -y python3-scapy
+
+# 2. Install dhcpt into /usr/local/bin (accessible in sudo secure_path):
+sudo PIPX_BIN_DIR=/usr/local/bin PIPX_HOME=/opt/pipx pipx install git+https://github.com/epicade/dhcpt.git
+# Or via pip:
+sudo pip install git+https://github.com/epicade/dhcpt.git
+```
+
+### Passwordless Execution for AI Agents / Automation
+If running non-interactively from AI CLI agents (Gemini CLI, Claude Code), a scoped rule in `/etc/sudoers.d/dhcpt` prevents password prompt blocks:
+```bash
+echo "$USER ALL=(ALL) NOPASSWD: /usr/local/bin/dhcpt" | sudo tee /etc/sudoers.d/dhcpt
+sudo chmod 0440 /etc/sudoers.d/dhcpt
+```
 
 ---
 
 ## Common Workflows & Command Recipes
 
 ### 1. Standard Local Broadcast Check
-Sends a DHCP Discover broadcast on a specific interface:
+Sends a DHCP Discover broadcast on a specific interface (flag or positional):
 ```bash
 sudo dhcpt -i eth0
+# or positional:
+sudo dhcpt eth0
 ```
 
-### 2. Rogue DHCP Server Detection (`--all`)
+### 2. Layer 3 Tunnel / VPN Testing (WireGuard / OpenVPN TUN)
+On Layer 3 point-to-point interfaces without MAC addresses, `dhcpt` automatically uses IP-level I/O:
+```bash
+sudo dhcpt -i wg0 -s 10.1.1.1 --relay-subnet 10.50.1.1
+```
+
+### 3. Rogue DHCP Server Detection (`--all`)
 Listens for the full timeout duration to capture all answering DHCP servers on the segment:
 ```bash
 sudo dhcpt -i eth0 --all --timeout 5
 ```
 *If multiple distinct servers answer, `dhcpt` outputs a `[WARN]` and lists every server ID, MAC, and offered IP.*
 
-### 3. DHCP Relay Agent & IP-Helper Simulation (Cisco, Juniper, Linux)
+### 4. DHCP Relay Agent & IP-Helper Simulation (Cisco, Juniper, Linux)
 When testing whether dedicated DHCP servers respond for a remote VLAN or subnet:
 ```bash
 # Test target server (IP or FQDN) with RFC 3527 Link Selection for the target subnet:
@@ -57,7 +86,7 @@ sudo dhcpt -i eth0 -s 10.1.1.1,10.1.1.2,10.1.1.3,10.1.1.4 --relay-subnet 10.50.1
 * **Why `--relay-subnet` (RFC 3527 Link Selection)?**
   RFC 2131 dictates that DHCP servers reply to `giaddr`. Setting `--relay-subnet <gateway_ip>` tells the DHCP server which pool to allocate from while directing the reply back to your machine's IP.
 
-### 4. Request Custom DHCP Options (`-o`)
+### 5. Request Custom DHCP Options (`-o`)
 Standard options (Subnet Mask, Router, DNS, NTP, Domain, Classless Routes, WPAD) are included by default. To request additional options:
 ```bash
 sudo dhcpt -i eth0 -o 12,26,66,67
@@ -65,7 +94,7 @@ sudo dhcpt -i eth0 -o 12,26,66,67
 sudo dhcpt -i eth0 -o hostname,tftp_server_name,interface_mtu
 ```
 
-### 5. Machine-Readable JSON Output
+### 6. Machine-Readable JSON Output
 ```bash
 sudo dhcpt -i eth0 --json
 ```
