@@ -9,6 +9,7 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 ---
 
 ### New
+* Add dynamic DIM autocompletion to Bash completion script (DHCPT_SERVER_PATTERNS, circuit-ids, relay-subnets)
 * Add shared-data mappings in pyproject.toml for automatic shell completion installation in system and global environments
 * Add assistant auto-detection and overwrite protection (--force) to --install-skill
 * Add UNIX manpage dhcpt(1) with shared-data installation for pipx and Linux package managers

@@ -832,6 +832,7 @@ def test_main_completion_bash(capsys: pytest.CaptureFixture[str]) -> None:
     assert "complete -F _dhcpt_bash dhcpt" in captured.out
     assert "--install-skill" in captured.out
     assert "--force" in captured.out
+    assert "DHCPT_SERVER_PATTERNS" in captured.out
 
 
 def test_main_completion_not_found(capsys: pytest.CaptureFixture[str]) -> None:

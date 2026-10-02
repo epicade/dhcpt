@@ -31,6 +31,71 @@ _dhcpt_bash() {
             COMPREPLY=( $(compgen -W "${dhcp_options}" -- "${cur}") )
             return 0
             ;;
+        -s|--server|--servers)
+            local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dhcpt"
+            local cache_file="$cache_dir/servers.cache"
+            local servers=""
+            local pattern
+
+            # If ndcli is installed, query DHCP servers from DIM - DNS and IP Management (https://github.com/ionos-core/dim)
+            # only if $DHCPT_SERVER_PATTERNS is configured (to avoid wildcards against huge DNS tables)
+            if command -v ndcli >/dev/null 2>&1; then
+                if [[ -z "$DHCPT_SERVER_PATTERNS" ]]; then
+                    printf "\n[dhcpt] Error: 'ndcli' is installed, but \$DHCPT_SERVER_PATTERNS is not set.\n" >&2
+                    printf "[dhcpt] To enable DHCP server autocompletion from DIM - DNS and IP Management (https://github.com/ionos-core/dim),\n" >&2
+                    printf "[dhcpt] define search patterns in ~/.bashrc or ~/.zshrc, e.g.:\n" >&2
+                    printf "[dhcpt]   export DHCPT_SERVER_PATTERNS=\"dhcp*.example.com dhcp*.corp.internal\"\n\n" >&2
+                    return 1
+                fi
+
+                if [[ ! -f "$cache_file" || $(find "$cache_file" -mtime +1 2>/dev/null) ]]; then
+                    mkdir -p "$cache_dir" 2>/dev/null
+                    for pattern in $DHCPT_SERVER_PATTERNS; do
+                        ndcli list rrs "$pattern" -H 2>/dev/null
+                    done | awk '($4 == "A" || $4 == "AAAA") { print $5; print $1 "." $2 }' | sort -u > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null
+                fi
+            fi
+
+            if [[ -s "$cache_file" ]]; then
+                servers=$(cat "$cache_file")
+                COMPREPLY=( $(compgen -W "${servers}" -- "${cur}") )
+                return 0
+            fi
+            ;;
+        --circuit-id)
+            local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dhcpt"
+            local cache_file="$cache_dir/vlans.cache"
+            local circuits=""
+
+            if command -v ndcli >/dev/null 2>&1; then
+                if [[ ! -f "$cache_file" || $(find "$cache_file" -mtime +1 2>/dev/null) ]]; then
+                    mkdir -p "$cache_dir" 2>/dev/null
+                    ndcli list pools 2>/dev/null | awk 'NR>1 && $2 ~ /^[0-9]+$/ {print "Vlan" $2; print $1}' | sort -u > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null
+                fi
+                if [[ -s "$cache_file" ]]; then
+                    circuits=$(cat "$cache_file")
+                    COMPREPLY=( $(compgen -W "${circuits}" -- "${cur}") )
+                    return 0
+                fi
+            fi
+            ;;
+        --relay-subnet)
+            local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dhcpt"
+            local cache_file="$cache_dir/subnets.cache"
+            local subnets=""
+
+            if command -v ndcli >/dev/null 2>&1; then
+                if [[ ! -f "$cache_file" || $(find "$cache_file" -mtime +1 2>/dev/null) ]]; then
+                    mkdir -p "$cache_dir" 2>/dev/null
+                    ndcli list pools 2>/dev/null | awk 'NR>1 {for (i=3; i<NF; i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$/) print $i}' | sort -u > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null
+                fi
+                if [[ -s "$cache_file" ]]; then
+                    subnets=$(cat "$cache_file")
+                    COMPREPLY=( $(compgen -W "${subnets}" -- "${cur}") )
+                    return 0
+                fi
+            fi
+            ;;
         *)
             ;;
     esac

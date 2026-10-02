@@ -311,7 +311,7 @@ Alternatively, evaluate the completion script directly in your shell configurati
 * **Network Interfaces:** Autocompletes available physical/virtual interfaces from `/sys/class/net` (with link status and MAC preview).
 * **DHCP Options (`-o <TAB>`):** Autocompletes RFC option codes and human-readable names (`subnet_mask`, `router`, `classless_static_routes`, etc.).
 * **Dynamic DIM Integration:** If `ndcli` (the CLI for [DIM - DNS and IP Management](https://github.com/ionos-core/dim)) is installed on your system, the completion script integrates with DIM:
-  - **DHCP Servers (`-s / --server <TAB>`):** To avoid returning thousands of irrelevant DNS records from your DIM database, define your organization's DHCP server search patterns in `~/.zshrc`:
+  - **DHCP Servers (`-s / --server <TAB>`):** To avoid returning thousands of irrelevant DNS records from your DIM database, define your organization's DHCP server search patterns in `~/.bashrc` or `~/.zshrc`:
     ```bash
     export DHCPT_SERVER_PATTERNS="dhcp*.example.com dhcp*.corp.internal"
     ```
