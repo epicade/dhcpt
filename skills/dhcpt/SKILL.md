@@ -34,8 +34,8 @@ sudo apt update && sudo apt install -y python3-scapy
 # RHEL / Rocky / AlmaLinux / Oracle Linux:
 sudo dnf install -y python3-scapy
 
-# 2. Install dhcpt into /usr/local/bin:
-sudo PIPX_BIN_DIR=/usr/local/bin PIPX_HOME=/opt/pipx pipx install git+https://github.com/epicade/dhcpt.git
+# 2. Install dhcpt globally into /usr/local/bin:
+sudo pipx install --global git+https://github.com/epicade/dhcpt.git
 ```
 
 ### Install Agent Skill for Gemini CLI, Claude Code, or Mistral Vibe

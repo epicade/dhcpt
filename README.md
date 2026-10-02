@@ -51,19 +51,18 @@ sudo apt install python3-scapy
 sudo dnf install python3-scapy
 ```
 
-### Install via pip / pipx
-Because crafting raw network packets requires `sudo`, installing `dhcpt` system-wide to `/usr/local/bin` ensures it is accessible within `sudo`'s default `secure_path`:
+### Install via pipx / pip
+Because crafting raw network packets requires `sudo`, installing `dhcpt` globally ensures it is accessible within `sudo`'s default `secure_path` (`/usr/local/bin`) and automatically provisions system manpages and shell completions:
 
 ```bash
-# Recommended: System-wide pipx installation into /usr/local/bin
-sudo PIPX_BIN_DIR=/usr/local/bin PIPX_HOME=/opt/pipx pipx install git+https://github.com/epicade/dhcpt.git
+# Recommended: Global installation using pipx --global (accessible in sudo secure_path)
+sudo pipx install --global git+https://github.com/epicade/dhcpt.git
 
-# Alternatively, standard system-wide pip install:
-sudo pip install git+https://github.com/epicade/dhcpt.git
-
-# Or install for your local user and create a symlink to /usr/local/bin:
+# Alternatively, user-level pipx installation:
 pipx install git+https://github.com/epicade/dhcpt.git
-sudo ln -s "$HOME/.local/bin/dhcpt" /usr/local/bin/dhcpt
+
+# Standard system-wide pip install:
+sudo pip install git+https://github.com/epicade/dhcpt.git
 ```
 
 ### Local Development Installation
