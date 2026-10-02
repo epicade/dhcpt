@@ -1,18 +1,30 @@
 #!/usr/bin/env bash
 set -e
 
-# Validate modified shell scripts and bash completion files
+# Validate modified Bash scripts and completions
 changed_bash_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^completions/bash/|\.sh$' || true)
 if [ -n "$changed_bash_files" ]; then
-    echo "[pre-commit] Checking syntax of modified shell/bash scripts..."
+    echo "[pre-commit] Checking syntax of modified Bash scripts..."
     for file in $changed_bash_files; do
         if [ -f "$file" ]; then
-            echo "  -> bash -n $file"
-            bash -n "$file"
+            echo "  -> bash -o noexec $file"
+            bash -o noexec "$file"
             if command -v shellcheck >/dev/null 2>&1; then
                 echo "  -> shellcheck $file"
                 shellcheck "$file"
             fi
+        fi
+    done
+fi
+
+# Validate modified Zsh completions (ShellCheck is Bash/POSIX only; Zsh uses zsh --noexec)
+changed_zsh_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^completions/zsh/|\.zsh$' || true)
+if [ -n "$changed_zsh_files" ] && command -v zsh >/dev/null 2>&1; then
+    echo "[pre-commit] Checking syntax of modified Zsh scripts..."
+    for file in $changed_zsh_files; do
+        if [ -f "$file" ]; then
+            echo "  -> zsh --noexec $file"
+            zsh --noexec "$file"
         fi
     done
 fi
