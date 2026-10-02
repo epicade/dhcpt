@@ -1466,20 +1466,47 @@ def print_options_table() -> None:
     print("\nTip: Pass additional options using -o/--request-options (e.g. dhcpt eth0 -o 66,67)")
 
 
-def print_completion_script(shell: str) -> None:
-    """Print shell completion script for zsh or bash."""
-    base_dir = Path(__file__).resolve().parent.parent.parent / "completions"
-    if shell == "zsh":
-        zsh_file = base_dir / "zsh" / "_dhcpt"
-        if zsh_file.exists():
-            print(zsh_file.read_text().rstrip())
-            return
-    elif shell == "bash":
-        bash_file = base_dir / "bash" / "dhcpt"
-        if bash_file.exists():
-            print(bash_file.read_text().rstrip())
-            return
+def get_completion_script(shell: str) -> str | None:
+    """Retrieve completion script content for zsh or bash."""
+    filename = "_dhcpt" if shell == "zsh" else "dhcpt"
+
+    # 1. Standard packaging in wheels / site-packages via importlib.resources
+    try:
+        import importlib.resources as pkg_resources
+
+        traversable = pkg_resources.files("dhcpt").joinpath("completions", shell, filename)
+        if traversable.is_file():
+            return traversable.read_text(encoding="utf-8")
+    except Exception as err:
+        LOGGER.debug("importlib.resources resolution failed for %s: %s", shell, err)
+
+    # 2. Adjacent package directory (e.g. site-packages/dhcpt/completions/...)
+    candidate1 = Path(__file__).resolve().parent / "completions" / shell / filename
+    if candidate1.is_file():
+        try:
+            return candidate1.read_text(encoding="utf-8")
+        except OSError as err:
+            LOGGER.debug("Reading %s failed: %s", candidate1, err)
+
+    # 3. Repository root directory (when running directly from git checkout src/dhcpt/cli.py)
+    candidate2 = Path(__file__).resolve().parent.parent.parent / "completions" / shell / filename
+    if candidate2.is_file():
+        try:
+            return candidate2.read_text(encoding="utf-8")
+        except OSError as err:
+            LOGGER.debug("Reading %s failed: %s", candidate2, err)
+
+    return None
+
+
+def print_completion_script(shell: str) -> bool:
+    """Print shell completion script for zsh or bash. Returns True on success."""
+    script = get_completion_script(shell)
+    if script:
+        print(script.rstrip())
+        return True
     LOGGER.error("Completion script for '%s' not found.", shell)
+    return False
 
 
 def _run(argv: list[str] | None = None) -> int:
@@ -1490,8 +1517,8 @@ def _run(argv: list[str] | None = None) -> int:
     setup_logging(debug=args.debug, verbose=args.verbose)
 
     if args.completion:
-        print_completion_script(args.completion)
-        return 0
+        success = print_completion_script(args.completion)
+        return 0 if success else 1
 
     if args.list_options:
         print_options_table()

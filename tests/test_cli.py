@@ -736,7 +736,7 @@ def test_main_version(capsys: pytest.CaptureFixture[str]) -> None:
         main(["--version"])
     assert exc_info.value.code == 0
     captured = capsys.readouterr()
-    assert "dhcpt 0.1.0" in captured.out
+    assert f"dhcpt {dhcpt_mod.__version__}" in captured.out
 
 
 def test_main_keyboard_interrupt(capsys: pytest.CaptureFixture[str]) -> None:
@@ -827,6 +827,14 @@ def test_main_completion_bash(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     assert "_dhcpt_bash" in captured.out
     assert "complete -F _dhcpt_bash dhcpt" in captured.out
+
+
+def test_main_completion_not_found(capsys: pytest.CaptureFixture[str]) -> None:
+    with patch.object(dhcpt_mod, "get_completion_script", return_value=None):
+        exit_code = main(["--completion", "zsh"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        assert "Completion script for 'zsh' not found" in captured.err
 
 
 def test_main_no_offers(capsys: pytest.CaptureFixture[str]) -> None:
