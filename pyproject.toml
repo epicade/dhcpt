@@ -77,11 +77,17 @@ packages = ["src/dhcpt"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "completions" = "dhcpt/completions"
+"skills" = "dhcpt/skills"
+
+[tool.hatch.build.targets.wheel.shared-data]
+"man/dhcpt.1" = "share/man/man1/dhcpt.1"
 
 [tool.hatch.build.targets.sdist]
 include = [
     "/src",
     "/completions",
+    "/skills",
+    "/man",
     "/README.md",
     "/LICENSE",
     "/CHANGELOG.md",

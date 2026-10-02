@@ -169,6 +169,8 @@ _dhcpt() {
     '(-j --json)'{-j,--json}'[Output results in JSON format]' \
     '(-l --list-interfaces)'{-l,--list-interfaces}'[List available network interfaces and exit]' \
     '--list-options[List known RFC DHCP options and exit]' \
+    '--install-skill[Install AI agent skill for Gemini CLI, Claude Code, or Mistral Vibe]:Assistant Target:(all gemini claude mistral)' \
+    '--force[Force overwrite of existing skill files or symlinks during --install-skill]' \
     '--version[Show program version and exit]' \
     '(-h --help)'{-h,--help}'[Show help message and exit]' \
     '(-i --interface 1)1:Network Interface:_dhcpt_interfaces'

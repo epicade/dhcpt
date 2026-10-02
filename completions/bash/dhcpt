@@ -7,7 +7,7 @@ _dhcpt_bash() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    opts="-i --interface -s --server --servers --circuit-id --remote-id --relay-subnet --giaddr -t --timeout -a --all -m --mac -o --request-options --clear-default-options --no-broadcast -d --debug -v --verbose -j --json -l --list-interfaces --list-options --completion --version -h --help"
+    opts="-i --interface -s --server --servers --circuit-id --remote-id --relay-subnet --giaddr -t --timeout -a --all -m --mac -o --request-options --clear-default-options --no-broadcast -d --debug -v --verbose -j --json -l --list-interfaces --list-options --install-skill --force --completion --version -h --help"
 
     case "${prev}" in
         -i|--interface)
@@ -20,6 +20,10 @@ _dhcpt_bash() {
             ;;
         --completion)
             COMPREPLY=( $(compgen -W "zsh bash" -- "${cur}") )
+            return 0
+            ;;
+        --install-skill)
+            COMPREPLY=( $(compgen -W "all gemini claude mistral" -- "${cur}") )
             return 0
             ;;
         -o|--request-options)

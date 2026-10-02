@@ -56,6 +56,7 @@ import json
 import logging
 import random
 import re
+import shutil
 import socket
 import struct
 import sys
@@ -291,7 +292,29 @@ def build_option_82(
     remote_id: str | None = None,
     link_selection: str | None = None,
 ) -> bytes:
-    """Construct raw Option 82 (Relay Agent Information) bytes."""
+    """Construct raw Option 82 (Relay Agent Information) payload bytes.
+
+    Encodes Relay Agent sub-options according to RFC 3046 and RFC 3527 into a
+    Type-Length-Value (TLV) byte sequence suitable for injection into BOOTP/DHCP
+    Option 82.
+
+    Sub-options supported:
+        - Sub-option 1: Agent Circuit ID (RFC 3046 §2.1)
+        - Sub-option 2: Agent Remote ID (RFC 3046 §2.2)
+        - Sub-option 5: Link Selection (RFC 3527 §2.1)
+
+    Args:
+        circuit_id: Circuit identifier (e.g. 'Vlan100', 'ge-0/0/1'). Max 255 bytes.
+        remote_id: Remote identifier (e.g. switch hostname or MAC). Max 255 bytes.
+        link_selection: IPv4 address string indicating the target subnet/pool.
+
+    Returns:
+        Raw bytes representing the assembled Option 82 sub-options payload.
+
+    Raises:
+        ValueError: If circuit_id or remote_id exceeds 255 bytes, or if link_selection
+            is not a valid IPv4 address.
+    """
     raw = bytearray()
     if circuit_id:
         c_bytes = circuit_id.encode("utf-8")
@@ -316,7 +339,23 @@ def build_option_82(
 
 
 def parse_option_82(data: bytes) -> dict[str, str]:
-    """Parse DHCP Option 82 (Relay Agent Information) sub-options."""
+    """Parse DHCP Option 82 (Relay Agent Information) sub-options into a key-value dictionary.
+
+    Decodes TLV (Type-Length-Value) sub-options from Option 82 payload bytes.
+
+    Known sub-options mapped:
+        - 1: circuit_id (string)
+        - 2: remote_id (string)
+        - 5: link_selection (IPv4 dotted-quad)
+        - 6: subscriber_id (string)
+        - 11: server_id_override (string)
+
+    Args:
+        data: Raw payload bytes of DHCP Option 82.
+
+    Returns:
+        Dictionary mapping sub-option names to their decoded string representations.
+    """
     suboptions: dict[str, str] = {}
     known_subopts = {
         1: "circuit_id",
@@ -343,7 +382,20 @@ def parse_option_82(data: bytes) -> dict[str, str]:
 
 
 def parse_classless_routes(raw_data: Any) -> list[str]:
-    """Parse RFC 3442 (Option 121) / Microsoft (Option 249) Classless Static Routes."""
+    """Parse RFC 3442 (Option 121) / Microsoft (Option 249) Classless Static Routes.
+
+    Decodes compact classless route descriptors. In RFC 3442 encoding, each route
+    consists of a 1-byte subnet mask width (0..32), followed by 0 to 4 significant
+    octets of the subnet prefix (calculated as ceil(mask_width / 8)), followed by
+    a 4-byte IPv4 router gateway address.
+
+    Args:
+        raw_data: Either a pre-parsed tuple/list of routes from Scapy, or raw bytes
+            representing the encoded option payload.
+
+    Returns:
+        List of formatted route strings, e.g. ['10.0.0.0/8 via 192.168.1.1', '0.0.0.0/0 via 10.1.1.1'].
+    """
     routes: list[str] = []
 
     if isinstance(raw_data, (list, tuple)):
@@ -362,11 +414,13 @@ def parse_classless_routes(raw_data: Any) -> list[str]:
         i += 1
         if mask_len > 32:
             break
+        # Compact prefix representation: ceil(mask_len / 8) significant octets
         prefix_bytes_len = (mask_len + 7) // 8
         if i + prefix_bytes_len + 4 > len(raw_data):
             break
         prefix_octets = list(raw_data[i : i + prefix_bytes_len])
         i += prefix_bytes_len
+        # Pad omitted zero octets up to standard 4-byte IPv4 length
         while len(prefix_octets) < 4:
             prefix_octets.append(0)
         prefix_ip = ".".join(str(b) for b in prefix_octets)
@@ -378,7 +432,17 @@ def parse_classless_routes(raw_data: Any) -> list[str]:
 
 
 def decode_rfc3397_domain_search(raw: bytes) -> list[str]:
-    """Decode RFC 3397 Domain Search Option bytes into a list of domain strings."""
+    """Decode RFC 3397 Domain Search Option bytes into a list of domain strings.
+
+    Parses the domain search list using DNS label encoding with compression pointers
+    (RFC 1035 §4.1.4 and RFC 3397 §2). Handles cyclic pointer loops safely.
+
+    Args:
+        raw: Raw bytes payload of DHCP Option 119 (Domain Search).
+
+    Returns:
+        List of fully-qualified domain name strings extracted from the search list.
+    """
     domains: list[str] = []
     i = 0
     total = len(raw)
@@ -871,16 +935,43 @@ def build_dhcp_discover(
     option_82_data: bytes | None = None,
     is_l3: bool = False,
 ) -> Any:
-    """Build a Scapy Layer 2 or Layer 3 DHCP Discover packet with requested options and relay fields."""
+    """Build a Scapy Layer 2 or Layer 3 DHCP Discover packet with requested options and relay fields.
+
+    Assembles standards-compliant packet layers according to RFC 2131 and RFC 2132:
+    - Layer 2 Ethernet header (Ether) with source MAC and target MAC (omitted if is_l3=True).
+    - IPv4 transport (IP / UDP): uses source port 68 for standard client broadcasts, or port 67
+      when simulating BOOTP relay forwarding (RFC 2131 §4.1).
+    - BOOTP header: op=1 (BOOTREQUEST), chaddr field padded to 16 bytes per RFC 2131 §2.
+    - DHCP options: message-type 'discover', client_id (Option 61 with hardware type 1 = Ethernet),
+      param_req_list (Option 55), and optional Option 82 Relay Agent Information.
+
+    Args:
+        mac_str: Client hardware MAC address string ('aa:bb:cc:dd:ee:ff').
+        xid: 32-bit transaction identifier.
+        broadcast: Whether to set the BOOTP broadcast flag (0x8000).
+        param_req_list: List of DHCP option codes to request in Option 55 (PRL).
+        dst_ip: Target destination IP ('255.255.255.255' or unicast DHCP server IP).
+        dst_mac: Target Layer 2 destination MAC address.
+        src_ip: Source IP address (usually '0.0.0.0', or local interface IP for relaying).
+        giaddr: BOOTP Relay Agent Gateway IP (RFC 2131).
+        hops: BOOTP hop count (0 for client broadcast, 1 for relay simulation).
+        option_82_data: Pre-constructed Option 82 payload bytes, if any.
+        is_l3: If True, omits Layer 2 Ethernet header and returns an IP packet.
+
+    Returns:
+        Scapy packet object ready for transmission via srp() (Layer 2) or sr() (Layer 3).
+    """
     if param_req_list is None:
         param_req_list = list(DEFAULT_REQUEST_OPTIONS)
 
     mac_raw = mac_to_bytes(mac_str)
+    # BOOTP chaddr is 16 bytes: 6-byte Ethernet MAC + 10 zero-padding bytes (RFC 2131 §2)
     chaddr = mac_raw + b"\x00" * 10
     flags = 0x8000 if broadcast else 0x0000
 
     dhcp_options: list[Any] = [
         ("message-type", "discover"),
+        # Option 61 (Client Identifier): type 0x01 (Ethernet) + MAC
         ("client_id", b"\x01" + mac_raw),
         ("param_req_list", param_req_list),
     ]
@@ -890,6 +981,7 @@ def build_dhcp_discover(
 
     dhcp_options.append("end")
 
+    # Relay agents forward on UDP port 67 -> 67; clients transmit on 68 -> 67
     sport = 67 if giaddr != "0.0.0.0" else 68
 
     ip_pkt = (
@@ -918,7 +1010,36 @@ def send_and_receive_dhcp(
     circuit_id: str | None = None,
     remote_id: str | None = None,
 ) -> list[DHCPOffer]:
-    """Transmit DHCP Discover (broadcast or unicast relay simulation) and collect Offer responses."""
+    """Transmit DHCP Discover (broadcast or unicast relay simulation) and collect Offer responses.
+
+    Supports dual-mode Layer 2 and Layer 3 I/O:
+    - Layer 2 Ethernet: Crafts Ethernet frames and transmits via Scapy's srp() (AF_PACKET raw socket).
+    - Layer 3 Point-to-Point: On tun/WireGuard devices, transmits IP packets via Scapy's sr() (AF_INET raw socket).
+
+    Relay Agent Simulation:
+    When servers or relay parameters are specified, simulates RFC 3527 Link Selection by setting
+    the BOOTP giaddr to local_ip (for reply routing) and Option 82 Sub-option 5 to the target subnet gateway.
+
+    Args:
+        interface: Network interface to transmit and sniff on.
+        mac_str: Client hardware MAC address to send in chaddr and Option 61.
+        timeout: Sniffing timeout in seconds to wait for responses.
+        listen_all: If True, continues listening for the full timeout window (rogue DHCP detection).
+        broadcast: Whether to set the BOOTP broadcast flag (0x8000).
+        param_req_list: Option codes to request in Option 55 (PRL).
+        servers: Optional list of dedicated DHCP server IPs/FQDNs to query via unicast.
+        giaddr: Explicit BOOTP relay gateway IP override.
+        relay_subnet: Target subnet gateway IP for RFC 3527 Link Selection.
+        circuit_id: Option 82 Sub-option 1 Circuit ID.
+        remote_id: Option 82 Sub-option 2 Remote ID.
+
+    Returns:
+        List of decoded DHCPOffer objects received from responding DHCP servers.
+
+    Raises:
+        RuntimeError: If Scapy is not available.
+        PermissionError: If insufficient privileges to open raw sockets.
+    """
     if not SCAPY_AVAILABLE:
         raise RuntimeError("Scapy is not installed. Please install python3-scapy via your package manager.")
 
@@ -1290,7 +1411,7 @@ Examples:
   dhcpt --list-interfaces                          # Show local network interfaces and link states
 
 Documentation & Relay Mechanics:
-  See README.md for full RFC 3527 Link Selection details and Cisco/Juniper configuration examples.
+  See 'man dhcpt' or https://github.com/epicade/dhcpt for full RFC 3527 Link Selection details and Cisco/Juniper configuration examples.
 """,
     )
     parser.add_argument(
@@ -1419,6 +1540,19 @@ Documentation & Relay Mechanics:
         help="List known RFC DHCP options and their default request status, then exit.",
     )
     util_group.add_argument(
+        "--install-skill",
+        nargs="?",
+        const="all",
+        choices=["all", "gemini", "claude", "mistral"],
+        metavar="TARGET",
+        help="Install AI agent skill for Gemini CLI, Claude Code, or Mistral Vibe (targets: gemini, claude, mistral, all; default: all). Automatically detects installed assistants and refuses to overwrite existing files without --force.",
+    )
+    util_group.add_argument(
+        "--force",
+        action="store_true",
+        help="Force overwrite of existing skill files or symlinks during --install-skill.",
+    )
+    util_group.add_argument(
         "--completion",
         choices=["zsh", "bash"],
         default=None,
@@ -1509,12 +1643,146 @@ def print_completion_script(shell: str) -> bool:
     return False
 
 
+def get_skill_content() -> str | None:
+    """Retrieve SKILL.md content from package resources or local filesystem.
+
+    Searches for the bundled skill definition in the following order:
+    1. Python wheel package resources via importlib.resources (standard install).
+    2. Adjacent package directory (e.g. site-packages/dhcpt/skills/dhcpt/SKILL.md).
+    3. Git repository root directory (running directly from source checkout).
+
+    Returns:
+        The string content of SKILL.md if found, or None if it cannot be located.
+    """
+    # 1. Standard packaging in wheels / site-packages via importlib.resources
+    try:
+        import importlib.resources as pkg_resources
+
+        traversable = pkg_resources.files("dhcpt").joinpath("skills", "dhcpt", "SKILL.md")
+        if traversable.is_file():
+            return traversable.read_text(encoding="utf-8")
+    except Exception as err:
+        LOGGER.debug("importlib.resources resolution failed for skill: %s", err)
+
+    # 2. Adjacent package directory (e.g. site-packages/dhcpt/skills/dhcpt/SKILL.md)
+    candidate1 = Path(__file__).resolve().parent / "skills" / "dhcpt" / "SKILL.md"
+    if candidate1.is_file():
+        try:
+            return candidate1.read_text(encoding="utf-8")
+        except OSError as err:
+            LOGGER.debug("Reading %s failed: %s", candidate1, err)
+
+    # 3. Repository root directory (when running directly from git checkout src/dhcpt/cli.py)
+    candidate2 = Path(__file__).resolve().parent.parent.parent / "skills" / "dhcpt" / "SKILL.md"
+    if candidate2.is_file():
+        try:
+            return candidate2.read_text(encoding="utf-8")
+        except OSError as err:
+            LOGGER.debug("Reading %s failed: %s", candidate2, err)
+
+    return None
+
+
+AGENT_SKILL_TARGETS: dict[str, tuple[str, str, str]] = {
+    "gemini": (".gemini/skills/dhcpt", "Gemini CLI", "gemini"),
+    "claude": (".claude/skills/dhcpt", "Claude Code", "claude"),
+    "mistral": (".vibe/skills/dhcpt", "Mistral Vibe", "vibe"),
+}
+
+
+def is_agent_present(target_key: str) -> bool:
+    """Check whether a given AI assistant is installed or configured on the host system.
+
+    Determines presence by checking if the agent's primary configuration directory
+    (e.g. ~/.gemini, ~/.claude, ~/.vibe) exists, or if its CLI executable is on PATH.
+
+    Args:
+        target_key: Target assistant key ('gemini', 'claude', or 'mistral').
+
+    Returns:
+        True if the assistant configuration directory or binary exists, False otherwise.
+    """
+    rel_dir, _, cli_cmd = AGENT_SKILL_TARGETS[target_key]
+    base_dir = Path.home() / Path(rel_dir).parts[0]
+    return base_dir.is_dir() or shutil.which(cli_cmd) is not None
+
+
+def install_agent_skill(target: str = "all", force: bool = False) -> int:
+    """Install AI agent skill for Gemini CLI, Claude Code, or Mistral Vibe.
+
+    Locates the bundled SKILL.md definition and deploys it to the agent's designated
+    skill directory.
+
+    Safety & Protection Policies:
+    - Auto-detection: When target is 'all', only assistants actually detected on the host
+      system receive the skill. Missing assistant directories are not created.
+    - Overwrite protection: If SKILL.md already exists at the target destination (whether
+      as a regular file or symlink), installation refuses with an error unless force=True.
+
+    Args:
+        target: Target assistant ('gemini', 'claude', 'mistral', or 'all').
+        force: If True, overwrites existing skill files or symlinks.
+
+    Returns:
+        Exit code: 0 on success, 1 on failure or error.
+    """
+    content = get_skill_content()
+    if not content:
+        LOGGER.error("Skill definition file (SKILL.md) could not be located.")
+        print("Error: Skill definition file (SKILL.md) not found.", file=sys.stderr)
+        return 1
+
+    if target == "all":
+        # Only install for agents that are actually installed or configured on the system
+        selected_keys = [k for k in AGENT_SKILL_TARGETS if is_agent_present(k)]
+        if not selected_keys:
+            print(
+                "Error: No supported AI assistant environments detected (~/.gemini, ~/.claude, ~/.vibe). "
+                "Specify a target explicitly (e.g. --install-skill gemini) to install.",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        selected_keys = [target]
+
+    failures = 0
+
+    for key in selected_keys:
+        rel_path, name, _ = AGENT_SKILL_TARGETS[key]
+        dest_dir = Path.home() / rel_path
+        dest_file = dest_dir / "SKILL.md"
+
+        if dest_file.exists() or dest_file.is_symlink():
+            if not force:
+                print(
+                    f"Error: Skill file already exists at {dest_file}. Refusing to overwrite.",
+                    file=sys.stderr,
+                )
+                failures += 1
+                continue
+            dest_file.unlink()
+
+        try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_file.write_text(content, encoding="utf-8")
+            print(f"[OK] Installed {name} skill to {dest_file}")
+        except OSError as err:
+            LOGGER.error("Failed to install %s skill to %s: %s", name, dest_file, err)
+            print(f"Error: Failed to install {name} skill to {dest_file}: {err}", file=sys.stderr)
+            failures += 1
+
+    return 1 if failures else 0
+
+
 def _run(argv: list[str] | None = None) -> int:
     """Internal main execution entry point."""
     parser = build_parser()
     args = parser.parse_args(argv)
 
     setup_logging(debug=args.debug, verbose=args.verbose)
+
+    if args.install_skill:
+        return install_agent_skill(args.install_skill, force=args.force)
 
     if args.completion:
         success = print_completion_script(args.completion)

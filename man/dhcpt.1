@@ -1,0 +1,209 @@
+.TH DHCPT 1 "October 2026" "dhcpt" "User Commands"
+.SH NAME
+dhcpt \- comprehensive DHCP tester, troubleshooting, and diagnostic CLI utility
+.SH SYNOPSIS
+.B dhcpt
+[\fIOPTIONS\fR] [\fIINTERFACE\fR]
+.br
+.B dhcpt
+\fB\-i\fR \fIINTERFACE\fR [\fIOPTIONS\fR]
+.br
+.B dhcpt
+\fB\-\-list\-interfaces\fR
+.br
+.B dhcpt
+\fB\-\-list\-options\fR
+.br
+.B dhcpt
+\fB\-\-install\-skill\fR [\fITARGET\fR]
+.SH DESCRIPTION
+\fBdhcpt\fR is a Layer 2 and Layer 3 DHCP testing, diagnostic, and troubleshooting tool
+designed for Linux network engineers and system administrators. It crafts RFC-compliant
+DHCP Discover packets, listens for DHCP Offers, and thoroughly decodes network parameters,
+lease lifetimes, Option 82 Relay Agent parameters, and RFC 3442 Classless Static Routes.
+.PP
+\fBdhcpt\fR is strictly \fBlease-safe\fR: it only completes the initial Discover \(-> Offer
+handshake. It never issues a DHCP Request or commits leases in DHCP server databases.
+.PP
+On Layer 2 Ethernet interfaces, \fBdhcpt\fR uses raw packet sockets (\fBAF_PACKET\fR)
+requiring superuser privileges (\fBsudo\fR). On Layer 3 point-to-point and tunnel interfaces
+without hardware MAC addresses (e.g., WireGuard \fBwg0\fR, OpenVPN \fBtun0\fR),
+\fBdhcpt\fR automatically switches to raw IP sockets (\fBAF_INET\fR).
+.SH OPTIONS
+.SS "Interface Targeting"
+.TP
+\fIinterface\fR, \fB\-i\fR \fIINTERFACE\fR, \fB\-\-interface\fR \fIINTERFACE\fR
+Target network interface to send DHCP Discovers on (e.g. \fBeth0\fR, \fBens3\fR, \fBbond0\fR, \fBwg0\fR).
+May be passed as an option flag or as a single positional argument.
+.SS "DHCP Relay & IP-Helper Simulation (Cisco, Juniper, Arista, Linux)"
+.TP
+\fB\-s\fR \fISERVERS\fR, \fB\-\-server\fR \fISERVERS\fR, \fB\-\-servers\fR \fISERVERS\fR
+Target one or more dedicated DHCP servers by IP address or FQDN (comma-separated, e.g. \fB\-s 10.1.1.1,10.1.1.2\fR).
+Simulates unicast relay forwarding (Cisco \fIip helper-address\fR).
+.TP
+\fB\-\-relay\-subnet\fR \fIRELAY_SUBNET\fR
+Specify the gateway IP of the target subnet/pool to request allocation from via RFC 3527
+Link Selection (Option 82 Sub-option 5).
+.TP
+\fB\-\-circuit\-id\fR \fICIRCUIT_ID\fR
+Simulate Option 82 Sub-option 1 Circuit ID (e.g. \fBVlan100\fR, \fBge-0/0/1\fR, RFC 3046).
+.TP
+\fB\-\-remote\-id\fR \fIREMOTE_ID\fR
+Simulate Option 82 Sub-option 2 Remote ID (e.g. switch hostname, MAC, or DUID, RFC 3046).
+.TP
+\fB\-\-giaddr\fR \fIGIADDR\fR
+Explicitly override the BOOTP Relay Agent Gateway IP address (\fIgiaddr\fR).
+Defaults to the local interface IP address when relay simulation is enabled.
+.SS "Protocol & DHCP Packet Options"
+.TP
+\fB\-o\fR \fIOPTIONS\fR, \fB\-\-request\-options\fR \fIOPTIONS\fR
+Comma-separated list of additional DHCP option codes (e.g. \fB12,26,66,67\fR) or symbolic names
+(e.g. \fBhostname,tftp_server_name\fR) to append to the Parameter Request List (Option 55).
+.TP
+\fB\-\-clear\-default\-options\fR
+Clear the default requested RFC options list. Requests only the options explicitly supplied
+with \fB\-o\fR/\fB\-\-request\-options\fR.
+.TP
+\fB\-\-no\-broadcast\fR
+Do not set the BOOTP broadcast flag, requesting the DHCP server to send unicast Offers.
+.TP
+\fB\-m\fR \fIMAC\fR, \fB\-\-mac\fR \fIMAC\fR
+Override the client hardware MAC address (format: \fBaa:bb:cc:dd:ee:ff\fR) to verify static
+DHCP reservations or MAC filtering rules without modifying the physical NIC.
+.SS "Timing, Detection & Output Format"
+.TP
+\fB\-t\fR \fITIMEOUT\fR, \fB\-\-timeout\fR \fITIMEOUT\fR
+Timeout in seconds to wait for DHCP Offers (default: \fB5.0\fR).
+.TP
+\fB\-a\fR, \fB\-\-all\fR
+Listen for the full timeout duration to capture all answering DHCP servers on the segment.
+Used to identify rogue or duplicate DHCP servers.
+.TP
+\fB\-j\fR, \fB\-\-json\fR
+Output results as formatted JSON for automated monitoring and scripting.
+.TP
+\fB\-d\fR, \fB\-\-debug\fR
+Enable verbose debug logging (frame assembly, socket operations, option decoding).
+.TP
+\fB\-v\fR, \fB\-\-verbose\fR
+Enable informational logging.
+.SS "Utilities & AI Integration"
+.TP
+\fB\-l\fR, \fB\-\-list\-interfaces\fR
+List available local network interfaces, operational states (\fBoperstate\fR, \fBcarrier\fR),
+IP addresses, and MAC addresses, then exit.
+.TP
+\fB\-\-list\-options\fR
+Display all supported RFC DHCP options and their default request status, then exit.
+.TP
+\fB\-\-install\-skill\fR [\fITARGET\fR]
+Install the bundled AI agent skill for Gemini CLI, Claude Code, or Mistral Vibe.
+Supported targets are \fBgemini\fR, \fBclaude\fR, \fBmistral\fR, or \fBall\fR (default).
+When \fBall\fR is selected, \fBdhcpt\fR automatically detects which AI assistants are present on the system (by inspecting configuration directories \fB~/.gemini\fR, \fB~/.claude\fR, \fB~/.vibe\fR or CLI binaries in \fBPATH\fR) and only deploys to active environments.
+If a skill file or symlink already exists at the destination, \fBdhcpt\fR refuses to overwrite it unless \fB\-\-force\fR is explicitly specified.
+.TP
+\fB\-\-force\fR
+Force overwrite of existing skill files or symlinks during \fB\-\-install\-skill\fR.
+.TP
+\fB\-\-completion\fR {\fIzsh\fR,\fIbash\fR}
+Generate shell completion script for Zsh or Bash to standard output, then exit.
+.TP
+\fB\-\-version\fR
+Print version number and exit.
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Show command-line usage summary and exit.
+.SH "DHCP RELAY & LAYER 3 SIMULATION"
+When diagnosing DHCP issues across switches and routers, standard broadcast testing fails
+because broadcasts do not cross Layer 3 boundaries.
+.PP
+\fBdhcpt\fR simulates a network relay agent (such as Cisco \fIip helper-address\fR) by:
+.IP 1. 3
+Sending a unicast UDP packet (sport 67, dport 67) to the dedicated DHCP server.
+.IP 2. 3
+Setting \fIgiaddr\fR to the tester's machine IP so the DHCP server routes the reply back.
+.IP 3. 3
+Injecting RFC 3527 Link Selection (Option 82 Sub-option 5) with the target gateway IP
+(\fB\-\-relay\-subnet\fR).
+.PP
+This allows network administrators to test remote subnets and VLANs from anywhere with Layer 3
+connectivity (including over corporate VPNs and WireGuard tunnels) without physical access
+to the target broadcast domain.
+.SH "EXIT CODES"
+.TP
+.B 0
+Success: all queried DHCP servers replied, or at least one Offer was captured on broadcast.
+.TP
+.B 1
+Failure / Timeout: zero DHCP Offers received, or permission denied.
+.TP
+.B 2
+CLI usage / syntax error: missing interface, invalid IP/MAC, or unknown option.
+.TP
+.B 3
+Partial response: multi-server query (\fB\-s\fR) where some servers answered but at least one timed out.
+.SH EXAMPLES
+.PP
+Standard local broadcast check:
+.RS
+.B sudo dhcpt -i eth0
+.RE
+.PP
+Detect rogue DHCP servers on local network:
+.RS
+.B sudo dhcpt -i eth0 --all --timeout 5
+.RE
+.PP
+Simulate Cisco IP-Helper against central server with Option 82:
+.RS
+.B sudo dhcpt -i eth0 -s 192.0.2.1 --relay-subnet 10.50.1.1 --circuit-id Vlan100
+.RE
+.PP
+Dynamic egress interface selection across VPN:
+.RS
+.B IFACE=$(ip route get 10.1.1.1 | grep -oP 'dev \eK\eS+')
+.br
+.B sudo dhcpt -i "$IFACE" -s 10.1.1.1 --relay-subnet 10.50.1.1
+.RE
+.PP
+Test Layer 3 WireGuard point-to-point interface:
+.RS
+.B sudo dhcpt -i wg0 -s 10.1.1.1 --relay-subnet 10.50.1.1
+.RE
+.PP
+Verify static reservation by spoofing client MAC:
+.RS
+.B sudo dhcpt -i eth0 -m 00:11:22:33:44:55
+.RE
+.PP
+Install AI assistant skill for Gemini CLI, Claude Code, and Mistral Vibe:
+.RS
+.B dhcpt --install-skill
+.RE
+.SH "RFC REFERENCES"
+.TP
+.B RFC 2131
+Dynamic Host Configuration Protocol
+.TP
+.B RFC 2132
+DHCP Options and BOOTP Vendor Extensions
+.TP
+.B RFC 3046
+DHCP Relay Agent Information Option (Option 82)
+.TP
+.B RFC 3397
+Dynamic Host Configuration Protocol (DHCP) Domain Search Option
+.TP
+.B RFC 3442
+Classless Static Route Option for DHCPv4 (Option 121)
+.TP
+.B RFC 3527
+Link Selection sub-option for the DHCP Relay Agent Information Option
+.SH AUTHORS
+Emilian Schweikert (\fIhttps://github.com/epicade\fR)
+.SH "REPORTING BUGS"
+Report bugs and submit feature requests at: \fIhttps://github.com/epicade/dhcpt/issues\fR
+.SH "SEE ALSO"
+.BR dhclient (8),
+.BR dhcpd (8),
+.BR scapy (1)

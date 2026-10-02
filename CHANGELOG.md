@@ -9,8 +9,13 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 ---
 
 ### New
+* Add assistant auto-detection and overwrite protection (--force) to --install-skill
+* Add UNIX manpage dhcpt(1) with shared-data installation for pipx and Linux package managers
+* Add --install-skill CLI flag to deploy agent skills for Gemini CLI, Claude Code, or Mistral Vibe
 
 ### Changes
+* Expand public SKILL.md and README with comprehensive Layer 3, WireGuard, and dynamic interface testing recipes
+* Replace README reference in --help with 'man dhcpt' and GitHub documentation URL
 
 ### Fixes
 

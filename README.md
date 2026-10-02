@@ -92,6 +92,30 @@ sudo chmod 0440 /etc/sudoers.d/dhcpt
 ```
 This restricts the passwordless permission strictly to the `dhcpt` executable.
 
+### UNIX Manual Page (`man dhcpt`)
+When installed via `pipx` or standard system packages, `dhcpt` automatically provides an offline UNIX manual page:
+```bash
+man dhcpt
+```
+
+### AI Agent Skill Installation (Gemini CLI, Claude Code, Mistral Vibe)
+`dhcpt` bundles ready-to-use agent skills for conversational CLI agents:
+```bash
+# Auto-detect installed assistants (~/.gemini, ~/.claude, ~/.vibe) and deploy:
+dhcpt --install-skill
+
+# Or install explicitly for a specific assistant:
+dhcpt --install-skill gemini     # Installs to ~/.gemini/skills/dhcpt/SKILL.md
+dhcpt --install-skill claude     # Installs to ~/.claude/skills/dhcpt/SKILL.md
+dhcpt --install-skill mistral    # Installs to ~/.vibe/skills/dhcpt/SKILL.md
+
+# Force overwrite if a skill file already exists:
+dhcpt --install-skill --force
+```
+
+* **Intelligent Auto-Detection:** When running `--install-skill` without arguments (or with `all`), `dhcpt` checks for active assistant environments and only deploys to detected assistants. It never creates unneeded directories for missing tools.
+* **Overwrite Protection:** If a `SKILL.md` file or symlink already exists at the destination, `dhcpt` refuses to overwrite it and returns an error. This protects customized skills or symlinked repositories. Pass `--force` to explicitly overwrite.
+
 ---
 
 ## Usage
@@ -104,14 +128,39 @@ sudo dhcpt -i eth0
 sudo dhcpt eth0
 ```
 
+### Layer 3 Point-to-Point & WireGuard / VPN Testing
+On Layer 3 interfaces without Ethernet framing (WireGuard `wg0`, OpenVPN `tun0`), `dhcpt` automatically uses IP-level raw socket I/O:
+```bash
+sudo dhcpt -i wg0 -s 10.1.1.1 --relay-subnet 10.50.1.1
+```
+
+### Dynamic Egress Interface Discovery
+When querying a remote server across routed corporate subnets or tunnels, discover the outgoing interface dynamically:
+```bash
+IFACE=$(ip route get 10.1.1.1 | grep -oP 'dev \K\S+')
+sudo dhcpt -i "$IFACE" -s 10.1.1.1 --relay-subnet 10.50.1.1 --circuit-id Vlan100
+```
+
 ### Test Dedicated DHCP Servers (Cisco IP-Helper Unicast Simulation)
 Query one or multiple central DHCP servers directly by IP or FQDN:
 ```bash
 # Single server:
 sudo dhcpt -i eth0 -s 192.0.2.1 --relay-subnet 10.50.1.1 --circuit-id Vlan100
 
+# Full Option 82 simulation (Circuit-ID + Remote-ID / switch hostname):
+sudo dhcpt -i eth0 -s 192.0.2.1 --relay-subnet 10.50.1.1 --circuit-id Vlan100 --remote-id sw-core01
+
 # Multiple dedicated DHCP servers simultaneously:
 sudo dhcpt -i eth0 -s 10.1.1.1,10.1.1.2,10.1.1.3,10.1.1.4 --relay-subnet 10.50.1.1
+
+# Override BOOTP Relay Agent Gateway IP (giaddr):
+sudo dhcpt -i eth0 -s 192.0.2.1 --relay-subnet 10.50.1.1 --giaddr 10.50.1.254
+```
+
+### Client MAC Spoofing for Static Lease Verification
+Verify whether static IP reservations or MAC filtering rules function as expected without changing physical network interface MACs:
+```bash
+sudo dhcpt -i eth0 -s 192.0.2.1 --relay-subnet 10.50.1.1 -m 00:11:22:33:44:55
 ```
 
 ### Detect Rogue DHCP Servers
