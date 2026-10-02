@@ -258,21 +258,30 @@ dhcpt --list-options
 
 ## Shell Completions (Zsh & Bash)
 
-When installed via `pipx` or `pip`, Python CLI tools do not automatically install shell completion scripts into your system directories because Python package managers do not know which shell you use or where your `$fpath` points.
+`dhcpt` provides intelligent shell completions for Zsh and Bash, including network interface discovery with link-state previews, RFC option codes, and dynamic DIM (DNS/IPAM) integration.
 
-`dhcpt` solves this by generating its own completion scripts on demand with the `--completion` flag:
+### Automatic System-wide Installation (Global / Package Installs)
+When installed as a system package (DEB, RPM) or globally via `sudo pipx install --global dhcpt`, the completion scripts are installed **automatically** into standard OS directories via package `shared-data`:
+* **Bash:** `/usr/share/bash-completion/completions/dhcpt`
+* **Zsh:** `/usr/share/zsh/site-functions/_dhcpt`
 
-### Installation & Setup
+No manual configuration is required for system users.
 
-#### For Zsh:
+### User-Level Setup (Standard `pipx install`)
+When installing without root privileges, `pipx` isolates tools in your user home directory. You can enable completions in your personal shell profile using either of the following methods:
+
+#### Method 1: On-demand Lazy Loading (Recommended for zero shell startup delay)
+Save the completion script directly to your user completion folder:
+
+##### For Zsh:
 ```bash
 # 1. Create your user site-functions directory (if it doesn't exist yet):
 mkdir -p ~/.local/share/zsh/site-functions
 
-# 2. Save the completion script (lazy-loaded on demand, zero shell startup delay):
+# 2. Save the completion script:
 dhcpt --completion zsh > ~/.local/share/zsh/site-functions/_dhcpt
 
-# 3. Ensure your site-functions directory is in your fpath in ~/.zshrc (before compinit):
+# 3. Ensure ~/.local/share/zsh/site-functions is in your fpath in ~/.zshrc (before compinit):
 #    fpath=(~/.local/share/zsh/site-functions $fpath)
 #    autoload -Uz compinit && compinit
 
@@ -280,12 +289,23 @@ dhcpt --completion zsh > ~/.local/share/zsh/site-functions/_dhcpt
 autoload -Uz compinit && compinit -C
 ```
 
-#### For Bash:
+##### For Bash:
 ```bash
 # Save to the standard user bash-completion directory (auto-loaded on demand):
 mkdir -p ~/.local/share/bash-completion/completions
 dhcpt --completion bash > ~/.local/share/bash-completion/completions/dhcpt
 ```
+
+#### Method 2: Dynamic Evaluation (Quickest One-Liner)
+Alternatively, evaluate the completion script directly in your shell configuration:
+* **In `~/.zshrc`:**
+  ```bash
+  eval "$(dhcpt --completion zsh)"
+  ```
+* **In `~/.bashrc`:**
+  ```bash
+  eval "$(dhcpt --completion bash)"
+  ```
 
 ### Features of the Shell Completion
 * **Network Interfaces:** Autocompletes available physical/virtual interfaces from `/sys/class/net` (with link status and MAC preview).
