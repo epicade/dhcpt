@@ -344,6 +344,7 @@ def test_send_and_receive_dhcp_layer3_uses_sr() -> None:
 
     with (
         patch.object(dhcpt_mod, "is_layer3_interface", return_value=True),
+        patch.object(dhcpt_mod, "get_if_addr", return_value="10.0.0.2"),
         patch.object(dhcpt_mod, "sr", return_value=([(None, mock_rcv)], [])) as mock_sr,
         patch.object(dhcpt_mod, "srp") as mock_srp,
     ):
@@ -355,6 +356,60 @@ def test_send_and_receive_dhcp_layer3_uses_sr() -> None:
         assert len(offers) == 1
         assert mock_sr.called
         assert not mock_srp.called
+
+
+def test_send_and_receive_dhcp_interface_not_found_fallback() -> None:
+    from unittest.mock import MagicMock
+
+    mock_rcv = MagicMock()
+    mock_rcv.haslayer.side_effect = lambda layer: layer in (dhcpt_mod.IP, dhcpt_mod.BOOTP, dhcpt_mod.DHCP)
+    mock_rcv.__getitem__.side_effect = lambda layer: {
+        dhcpt_mod.IP: MagicMock(src="10.0.0.1"),
+        dhcpt_mod.BOOTP: MagicMock(yiaddr="10.0.0.100", giaddr="0.0.0.0", siaddr="10.0.0.1", xid=123),
+        dhcpt_mod.DHCP: MagicMock(options=[("message-type", "offer"), ("server_id", "10.0.0.1"), "end"]),
+    }[layer]
+
+    with (
+        patch.object(dhcpt_mod, "is_layer3_interface", return_value=True),
+        patch.object(dhcpt_mod, "get_if_addr", side_effect=ValueError("Interface 'nonexistent0' not found !")),
+        patch.object(dhcpt_mod, "sr", return_value=([(None, mock_rcv)], [])) as mock_sr,
+        patch.object(dhcpt_mod, "srp") as mock_srp,
+    ):
+        offers = dhcpt_mod.send_and_receive_dhcp(
+            interface="nonexistent0",
+            mac_str="02:11:22:33:44:55",
+            servers=["10.0.0.1"],
+        )
+        assert len(offers) == 1
+        assert mock_sr.called
+        assert not mock_srp.called
+
+
+def test_send_and_receive_dhcp_layer2_uses_srp() -> None:
+    from unittest.mock import MagicMock
+
+    mock_rcv = MagicMock()
+    mock_rcv.haslayer.side_effect = lambda layer: layer in (dhcpt_mod.IP, dhcpt_mod.BOOTP, dhcpt_mod.DHCP)
+    mock_rcv.__getitem__.side_effect = lambda layer: {
+        dhcpt_mod.IP: MagicMock(src="192.168.1.1"),
+        dhcpt_mod.BOOTP: MagicMock(yiaddr="192.168.1.100", giaddr="0.0.0.0", siaddr="192.168.1.1", xid=123),
+        dhcpt_mod.DHCP: MagicMock(options=[("message-type", "offer"), ("server_id", "192.168.1.1"), "end"]),
+    }[layer]
+
+    with (
+        patch.object(dhcpt_mod, "is_layer3_interface", return_value=False),
+        patch.object(dhcpt_mod, "get_if_addr", return_value="192.168.1.50"),
+        patch.object(dhcpt_mod, "srp", return_value=([(None, mock_rcv)], [])) as mock_srp,
+        patch.object(dhcpt_mod, "sr") as mock_sr,
+    ):
+        offers = dhcpt_mod.send_and_receive_dhcp(
+            interface="eth0",
+            mac_str="00:11:22:33:44:55",
+            timeout=2.0,
+        )
+        assert len(offers) == 1
+        assert mock_srp.called
+        assert not mock_sr.called
 
 
 def test_decode_rfc3397_domain_search() -> None:

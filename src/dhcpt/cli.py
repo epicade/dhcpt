@@ -642,7 +642,7 @@ def resolve_mac_via_arp(ip: str, iface: str, timeout: float = 1.0) -> str | None
                 resolved = str(rcv[ARP].hwsrc).lower()
                 LOGGER.debug("* [arp] Resolved MAC for IP %s via active ARP: %s", ip, resolved)
                 return resolved
-    except (OSError, Scapy_Exception) as err:
+    except (OSError, ValueError, Scapy_Exception) as err:
         LOGGER.debug("* [arp] Active ARP resolution failed for %s on '%s': %s", ip, iface, err)
     return None
 
@@ -930,7 +930,7 @@ def send_and_receive_dhcp(
     local_ip = "0.0.0.0"
     try:
         local_ip = get_if_addr(interface) or "0.0.0.0"
-    except (OSError, Scapy_Exception) as err:
+    except (OSError, ValueError, Scapy_Exception) as err:
         LOGGER.debug("Could not determine local IP on '%s': %s", interface, err)
 
     option_82_data: bytes | None = None
