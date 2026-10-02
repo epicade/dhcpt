@@ -15,6 +15,7 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 * Add --install-skill CLI flag to deploy agent skills for Gemini CLI, Claude Code, or Mistral Vibe
 
 ### Changes
+* Format DIM reference as [DIM - DNS and IP Management](https://github.com/ionos-core/dim) in README
 * Document both automatic system-wide and user-level shell completion setup in README
 * Expand public SKILL.md and README with comprehensive Layer 3, WireGuard, and dynamic interface testing recipes
 * Replace README reference in --help with 'man dhcpt' and GitHub documentation URL
