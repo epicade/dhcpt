@@ -1,0 +1,97 @@
+---
+name: dhcpt
+description: Test and troubleshoot DHCP servers, pools, and Option 82 relays — run DHCP discovers, simulate Cisco/Juniper IP-helpers, detect rogue servers, inspect offered IPs, leases, and Option 121 classless static routes.
+---
+
+# dhcpt - DHCP Testing & Troubleshooting Guide
+
+`dhcpt` is a Layer 2/3 DHCP testing, troubleshooting, and diagnostic CLI utility written in Python. It crafts RFC-compliant DHCP Discover packets, listens for DHCP Offers, and analyzes network parameters, lease times, Option 82 relay information, and RFC 3442 routing options.
+
+---
+
+## When to Use `dhcpt`
+
+Trigger this skill whenever you need to:
+1. **Verify if a DHCP server is responding** on a network segment or VLAN without configuring an interface or consuming an IP lease.
+2. **Simulate a Cisco/Juniper/Arista/Linux DHCP Relay Agent (`ip helper-address`)** to test whether central DHCP servers (e.g. Anycast servers) have an active pool for a specific subnet.
+3. **Detect Rogue DHCP Servers** on a local broadcast domain.
+4. **Debug Option 82 / Circuit-ID routing** to check if DHCP servers apply the expected policies.
+5. **Inspect pushed DHCP options** (Subnet Mask, Default Gateway, DNS, NTP, Domain Search List, RFC 3442 Classless Static Routes).
+
+---
+
+## Privileges & Prerequisites
+
+* **Root Privileges:** Layer 2 raw packet crafting (`AF_PACKET`) requires `sudo`.
+* **Path:** `/usr/local/bin/dhcpt` or `~/scripte/dhcpt`.
+* **Passwordless Execution for AI Agents / Automation:** If running non-interactively or from AI CLI agents (Gemini CLI, Claude Code), a scoped rule in `/etc/sudoers.d/dhcpt` (`<user> ALL=(ALL) NOPASSWD: /usr/local/bin/dhcpt, <home>/scripte/dhcpt`) prevents password prompt blocks.
+
+---
+
+## Common Workflows & Command Recipes
+
+### 1. Standard Local Broadcast Check
+Sends a DHCP Discover broadcast on a specific interface:
+```bash
+sudo dhcpt -i eth0
+```
+
+### 2. Rogue DHCP Server Detection (`--all`)
+Listens for the full timeout duration to capture all answering DHCP servers on the segment:
+```bash
+sudo dhcpt -i eth0 --all --timeout 5
+```
+*If multiple distinct servers answer, `dhcpt` outputs a `[WARN]` and lists every server ID, MAC, and offered IP.*
+
+### 3. DHCP Relay Agent & IP-Helper Simulation (Cisco, Juniper, Linux)
+When testing whether dedicated DHCP servers respond for a remote VLAN or subnet:
+```bash
+# Test target server (IP or FQDN) with RFC 3527 Link Selection for the target subnet:
+sudo dhcpt -i eth0 -s 192.0.2.1 --relay-subnet 10.50.1.1 --circuit-id Vlan100
+sudo dhcpt -i eth0 -s dhcp1.example.com --relay-subnet 10.50.1.1 --circuit-id Vlan100
+
+# Test multiple dedicated DHCP servers simultaneously:
+sudo dhcpt -i eth0 -s 10.1.1.1,10.1.1.2,10.1.1.3,10.1.1.4 --relay-subnet 10.50.1.1 --circuit-id Vlan100 --remote-id sw-core01
+```
+
+* **Why `--relay-subnet` (RFC 3527 Link Selection)?**
+  RFC 2131 dictates that DHCP servers reply to `giaddr`. Setting `--relay-subnet <gateway_ip>` tells the DHCP server which pool to allocate from while directing the reply back to your machine's IP.
+
+### 4. Request Custom DHCP Options (`-o`)
+Standard options (Subnet Mask, Router, DNS, NTP, Domain, Classless Routes, WPAD) are included by default. To request additional options:
+```bash
+sudo dhcpt -i eth0 -o 12,26,66,67
+# or by name:
+sudo dhcpt -i eth0 -o hostname,tftp_server_name,interface_mtu
+```
+
+### 5. Machine-Readable JSON Output
+```bash
+sudo dhcpt -i eth0 --json
+```
+
+---
+
+## Exit Codes
+
+* **`0` (Success):** All queried DHCP servers replied, or at least one Offer was captured on broadcast.
+* **`1` (No Offer / Failure):** Timed out with 0 DHCP Offers received, or raw socket permission failure.
+* **`2` (Usage / Syntax Error):** Missing required interface, invalid IP/MAC, or unknown DHCP option.
+* **`3` (Partial Response):** Multi-server query (`-s`) where some servers replied but at least one timed out.
+
+---
+
+## Interpreting Output & Troubleshooting Checklist
+
+### If No Offer is Received (`[FAILURE]`):
+1. **Link State:** Check whether `operstate` is `up` and `carrier` is `1`. If down, run `sudo ip link set <iface> up`.
+2. **VLAN Tagging:** Verify if the client port is on the correct access VLAN or trunk PVID.
+3. **DHCP Relay Configuration:** On the upstream switch, check if `ip helper-address <server>` is configured on the SVI.
+4. **Firewall:** Verify host and network firewalls do not drop UDP ports 67 and 68.
+5. **Pool Exhaustion:** Check DHCP server logs to see if the address pool has available leases.
+
+### If an Offer is Received:
+* **`yiaddr` (Offered IP):** The IP address offered by the server.
+* **`server_id` / Server IP:** Identifies which server answered.
+* **`Option 82`:** Confirms if the relay agent forwarded Circuit-ID and Remote-ID.
+* **`Option 121 / 249` (Classless Static Routes):** Shows static routes pushed for VPN or enterprise subnets (e.g. `10.0.0.0/8 via 192.168.1.1`).
