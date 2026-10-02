@@ -1,0 +1,48 @@
+# Bash completion for dhcpt (DHCP Tester)
+# https://github.com/epicade/dhcpt
+
+_dhcpt_bash() {
+    local cur prev opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+    opts="-i --interface -s --server --servers --circuit-id --remote-id --relay-subnet --giaddr -t --timeout -a --all -m --mac -o --request-options --clear-default-options --no-broadcast -d --debug -v --verbose -j --json -l --list-interfaces --list-options --completion --version -h --help"
+
+    case "${prev}" in
+        -i|--interface)
+            local ifaces=""
+            if [ -d /sys/class/net ]; then
+                ifaces=$(ls /sys/class/net | grep -v '^lo$')
+            fi
+            COMPREPLY=( $(compgen -W "${ifaces}" -- "${cur}") )
+            return 0
+            ;;
+        --completion)
+            COMPREPLY=( $(compgen -W "zsh bash" -- "${cur}") )
+            return 0
+            ;;
+        -o|--request-options)
+            local dhcp_options="subnet_mask router name_server hostname domain interface_mtu broadcast_address static_routes ntp_servers vendor_specific tftp_server_name bootfile_name client_fqdn domain_search classless_static_routes ms_classless_static_routes wpad"
+            COMPREPLY=( $(compgen -W "${dhcp_options}" -- "${cur}") )
+            return 0
+            ;;
+        *)
+            ;;
+    esac
+
+    if [[ ${cur} == -* ]] ; then
+        COMPREPLY=( $(compgen -W "${opts}" -- "${cur}") )
+        return 0
+    fi
+
+    # Complete available network interfaces
+    local ifaces=""
+    if [ -d /sys/class/net ]; then
+        ifaces=$(ls /sys/class/net | grep -v '^lo$')
+    fi
+    COMPREPLY=( $(compgen -W "${ifaces}" -- "${cur}") )
+    return 0
+}
+
+complete -F _dhcpt_bash dhcpt

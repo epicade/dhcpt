@@ -1,0 +1,181 @@
+#compdef dhcpt
+#
+# Zsh completion for dhcpt (DHCP Tester)
+# https://github.com/epicade/dhcpt
+
+_dhcpt_options() {
+  local -a dhcp_opts
+  dhcp_opts=(
+    'subnet_mask:Option 1 - Subnet Mask (RFC 2132)'
+    'router:Option 3 - Default Gateway / Router (RFC 2132)'
+    'name_server:Option 6 - DNS Servers (RFC 2132)'
+    'hostname:Option 12 - Host Name (RFC 2132)'
+    'domain:Option 15 - Domain Name (RFC 2132)'
+    'interface_mtu:Option 26 - Interface MTU (RFC 2132)'
+    'broadcast_address:Option 28 - Broadcast Address (RFC 2132)'
+    'static_routes:Option 33 - Static Routes (RFC 2132)'
+    'ntp_servers:Option 42 - NTP Servers (RFC 2132)'
+    'vendor_specific:Option 43 - Vendor-Specific Information (RFC 2132)'
+    'requested_ip:Option 50 - Requested IP Address (RFC 2132)'
+    'lease_time:Option 51 - IP Address Lease Time (RFC 2132)'
+    'tftp_server_name:Option 66 - TFTP Server Name (RFC 2132)'
+    'bootfile_name:Option 67 - Bootfile Name (RFC 2132)'
+    'client_fqdn:Option 81 - Client FQDN (RFC 4702)'
+    'domain_search:Option 119 - Domain Search List (RFC 3397)'
+    'classless_static_routes:Option 121 - Classless Static Routes (RFC 3442 / VPN)'
+    'ms_classless_static_routes:Option 249 - MS Classless Static Routes (VPN)'
+    'wpad:Option 252 - Web Proxy Auto-Discovery (PAC URL)'
+  )
+  _describe -t dhcp-options 'DHCP Option' dhcp_opts -qS ','
+}
+
+_dhcpt_servers() {
+  local -a servers
+  local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dhcpt"
+  local cache_file="$cache_dir/servers.cache"
+  local pattern s_ip s_hosts
+
+  # If ndcli is installed, query DHCP servers only if $DHCPT_SERVER_PATTERNS is configured
+  if (( $+commands[ndcli] )); then
+    if [[ -z "$DHCPT_SERVER_PATTERNS" ]]; then
+      print -u2 "\n[dhcpt] Error: 'ndcli' is installed, but \$DHCPT_SERVER_PATTERNS is not set."
+      print -u2 "[dhcpt] To enable DHCP server autocompletion from DIM, define search patterns in ~/.zshrc, e.g.:"
+      print -u2 "[dhcpt]   export DHCPT_SERVER_PATTERNS=\"dhcp*.example.com dhcp*.corp.internal\"\n"
+      _message "[dhcpt] \$DHCPT_SERVER_PATTERNS not set (see stderr explanation)"
+      return 1
+    fi
+
+    if [[ ! -f "$cache_file" || $(find "$cache_file" -mtime +1 2>/dev/null) ]]; then
+      mkdir -p "$cache_dir" 2>/dev/null
+      for pattern in $=DHCPT_SERVER_PATTERNS; do
+        ndcli list rrs "$pattern" -H 2>/dev/null
+      done | awk '($4 == "A" || $4 == "AAAA") {
+        ip = $5
+        name = $1 "." $2
+        if (ip in h) {
+          if (h[ip] !~ name) h[ip] = h[ip] ", " name
+        } else {
+          h[ip] = name
+        }
+      }
+      END {
+        for (ip in h) print ip ":" h[ip]
+      }' | sort -V > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null
+    fi
+  fi
+
+  if [[ -s "$cache_file" ]]; then
+    while IFS=: read -r s_ip s_hosts; do
+      [[ -n "$s_ip" ]] && servers+=("${s_ip}:${s_hosts}")
+    done < "$cache_file"
+  fi
+
+  if (( ${#servers} )); then
+    _describe -t dhcp-servers 'DHCP Server IP' servers -qS ','
+  else
+    _message 'DHCP Server IP or Hostname'
+  fi
+}
+
+_dhcpt_circuit_ids() {
+  local -a circuits
+  local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dhcpt"
+  local cache_file="$cache_dir/vlans.cache"
+
+  if (( $+commands[ndcli] )); then
+    if [[ ! -f "$cache_file" || $(find "$cache_file" -mtime +1 2>/dev/null) ]]; then
+      mkdir -p "$cache_dir" 2>/dev/null
+      ndcli list pools 2>/dev/null | awk 'NR>1 && $2 ~ /^[0-9]+$/ {print "Vlan" $2 ":" $1; print $1 ":VLAN " $2}' > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null
+    fi
+
+    if [[ -s "$cache_file" ]]; then
+      while IFS=: read -r c_val c_desc; do
+        [[ -n "$c_val" ]] && circuits+=("${c_val}:${c_desc}")
+      done < "$cache_file"
+    fi
+  fi
+
+  if (( ${#circuits} )); then
+    _describe -t circuit-ids 'Cisco Circuit-ID (Vlan<id> / Pool)' circuits
+  else
+    _message 'Cisco Circuit-ID (e.g. Vlan100, GigabitEthernet1/0/1)'
+  fi
+}
+
+_dhcpt_relay_subnets() {
+  local -a subnets
+  local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dhcpt"
+  local cache_file="$cache_dir/subnets.cache"
+
+  if (( $+commands[ndcli] )); then
+    if [[ ! -f "$cache_file" || $(find "$cache_file" -mtime +1 2>/dev/null) ]]; then
+      mkdir -p "$cache_dir" 2>/dev/null
+      ndcli list pools 2>/dev/null | awk 'NR>1 {for (i=3; i<NF; i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$/) print $i ":" $1}' > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null
+    fi
+
+    if [[ -s "$cache_file" ]]; then
+      while IFS=: read -r sub_val sub_pool; do
+        [[ -n "$sub_val" ]] && subnets+=("${sub_val}:${sub_pool}")
+      done < "$cache_file"
+    fi
+  fi
+
+  if (( ${#subnets} )); then
+    _describe -t relay-subnets 'Relay Subnet / Pool Gateway' subnets
+  else
+    _message 'Target Subnet Gateway IP (e.g. 10.50.1.1)'
+  fi
+}
+
+_dhcpt_interfaces() {
+  local -a ifaces
+  local dev_path iface operstate carrier mac
+  for dev_path in /sys/class/net/*; do
+    iface="${dev_path##*/}"
+    [[ "$iface" == "lo" ]] && continue
+    operstate="$(< "$dev_path/operstate" 2>/dev/null || echo unknown)"
+    carrier="$(< "$dev_path/carrier" 2>/dev/null || echo '?')"
+    mac="$(< "$dev_path/address" 2>/dev/null || echo '-')"
+    ifaces+=("${iface}:${operstate}, carrier:${carrier}, mac:${mac}")
+  done
+
+  if (( ${#ifaces} )); then
+    _describe -t interfaces 'Network Interface' ifaces
+  else
+    _net_interfaces
+  fi
+}
+
+_dhcpt() {
+  local curcontext="$curcontext" state line
+  typeset -A opt_args
+
+  _arguments -s \
+    '(-i --interface 1)'{-i,--interface}'[Network interface to send DHCP Discover on]:Network Interface:_dhcpt_interfaces' \
+    '(-s --server --servers)'{-s,--server,--servers}'[Target dedicated DHCP server IP(s)]:DHCP Server:_dhcpt_servers' \
+    '--circuit-id[Simulate Cisco Option 82 Sub-option 1 Circuit ID]:Circuit ID / VLAN:_dhcpt_circuit_ids' \
+    '--remote-id[Simulate Cisco Option 82 Sub-option 2 Remote ID]:Remote ID:' \
+    '--relay-subnet[Target subnet gateway IP to request pool from]:Relay Subnet:_dhcpt_relay_subnets' \
+    '--giaddr[Explicitly override BOOTP Relay Agent Gateway IP]:Gateway IP:' \
+    '--completion[Generate shell completion script and exit]:Shell:(zsh bash)' \
+    '(-t --timeout)'{-t,--timeout}'[Timeout in seconds to wait for DHCP Offers]:Timeout (seconds):' \
+    '(-a --all)'{-a,--all}'[Listen for full timeout duration to capture all DHCP Offers]' \
+    '(-m --mac)'{-m,--mac}'[Override client MAC address]:MAC Address:' \
+    '(-o --request-options)'{-o,--request-options}'[Additional DHCP option codes or names to request]:Option Name:_dhcpt_options' \
+    '--clear-default-options[Do not include default RFC options in PRL]' \
+    '--no-broadcast[Do not set BOOTP broadcast flag (requests unicast)]' \
+    '(-d --debug)'{-d,--debug}'[Enable detailed debug logging]' \
+    '(-v --verbose)'{-v,--verbose}'[Enable informational logging]' \
+    '(-j --json)'{-j,--json}'[Output results in JSON format]' \
+    '(-l --list-interfaces)'{-l,--list-interfaces}'[List available network interfaces and exit]' \
+    '--list-options[List known RFC DHCP options and exit]' \
+    '--version[Show program version and exit]' \
+    '(-h --help)'{-h,--help}'[Show help message and exit]' \
+    '(-i --interface 1)1:Network Interface:_dhcpt_interfaces'
+}
+
+if [[ "$funcstack[1]" = "_dhcpt" ]]; then
+  _dhcpt "$@"
+else
+  compdef _dhcpt dhcpt
+fi
