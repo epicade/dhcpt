@@ -9,6 +9,7 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 ---
 
 ### New
+* Add shared-data mappings in pyproject.toml for automatic shell completion installation in system and global environments
 * Add assistant auto-detection and overwrite protection (--force) to --install-skill
 * Add UNIX manpage dhcpt(1) with shared-data installation for pipx and Linux package managers
 * Add --install-skill CLI flag to deploy agent skills for Gemini CLI, Claude Code, or Mistral Vibe

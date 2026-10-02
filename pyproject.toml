@@ -81,6 +81,8 @@ packages = ["src/dhcpt"]
 
 [tool.hatch.build.targets.wheel.shared-data]
 "man/dhcpt.1" = "share/man/man1/dhcpt.1"
+"completions/bash/dhcpt" = "share/bash-completion/completions/dhcpt"
+"completions/zsh/_dhcpt" = "share/zsh/site-functions/_dhcpt"
 
 [tool.hatch.build.targets.sdist]
 include = [
