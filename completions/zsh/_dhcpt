@@ -35,11 +35,11 @@ _dhcpt_servers() {
   local cache_file="$cache_dir/servers.cache"
   local pattern s_ip s_hosts
 
-  # If ndcli is installed, query DHCP servers only if $DHCPT_SERVER_PATTERNS is configured
+  # If ndcli is installed, query DHCP servers from DIM - DNS and IP Management (https://github.com/ionos-core/dim)
   if (( $+commands[ndcli] )); then
     if [[ -z "$DHCPT_SERVER_PATTERNS" ]]; then
       print -u2 "\n[dhcpt] Error: 'ndcli' is installed, but \$DHCPT_SERVER_PATTERNS is not set."
-      print -u2 "[dhcpt] To enable DHCP server autocompletion from DIM, define search patterns in ~/.zshrc, e.g.:"
+      print -u2 "[dhcpt] To enable DHCP server autocompletion from DIM - DNS and IP Management, define search patterns in ~/.zshrc, e.g.:"
       print -u2 "[dhcpt]   export DHCPT_SERVER_PATTERNS=\"dhcp*.example.com dhcp*.corp.internal\"\n"
       _message "[dhcpt] \$DHCPT_SERVER_PATTERNS not set (see stderr explanation)"
       return 1
