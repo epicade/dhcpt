@@ -17,7 +17,7 @@ if [ -n "$changed_bash_files" ]; then
     done
 fi
 
-# Validate modified Zsh completions (ShellCheck is Bash/POSIX only; Zsh uses zsh --noexec)
+# Validate modified Zsh completions (ShellCheck is Bash/POSIX only; Zsh uses zsh --noexec and compinit load)
 changed_zsh_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^completions/zsh/|\.zsh$' || true)
 if [ -n "$changed_zsh_files" ] && command -v zsh >/dev/null 2>&1; then
     echo "[pre-commit] Checking syntax of modified Zsh scripts..."
@@ -25,6 +25,20 @@ if [ -n "$changed_zsh_files" ] && command -v zsh >/dev/null 2>&1; then
         if [ -f "$file" ]; then
             echo "  -> zsh --noexec $file"
             zsh --noexec "$file"
+            echo "  -> zsh completion runtime load test: $file"
+            zsh -f -c "autoload -Uz compinit && compinit -D && source $file"
+        fi
+    done
+fi
+
+# Validate modified UNIX manpages
+changed_man_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^man/.*\.1$' || true)
+if [ -n "$changed_man_files" ]; then
+    echo "[pre-commit] Validating modified UNIX manpages..."
+    for file in $changed_man_files; do
+        if [ -f "$file" ]; then
+            echo "  -> man -l $file"
+            man -l "$file" > /dev/null
         fi
     done
 fi

@@ -9,6 +9,8 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 ---
 
 ### New
+* Add developer Makefile with help, install, test, lint, format, and check targets
+* Export public library networking functions and dataclasses in dhcpt.__init__
 * Add dynamic DIM autocompletion to Bash completion script (DHCPT_SERVER_PATTERNS, circuit-ids, relay-subnets)
 * Add shared-data mappings in pyproject.toml for automatic shell completion installation in system and global environments
 * Add assistant auto-detection and overwrite protection (--force) to --install-skill
@@ -16,6 +18,7 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 * Add --install-skill CLI flag to deploy agent skills for Gemini CLI, Claude Code, or Mistral Vibe
 
 ### Changes
+* Harden CI workflow and pre-commit hook with ShellCheck, Zsh completion loading, and manpage linting
 * Simplify system-wide installation documentation to use native pipx --global flag
 * Add shell script validation (bash -n and shellcheck) to pre-commit git hook
 * Add ENVIRONMENT section in manpage documenting DHCPT_SERVER_PATTERNS and DIM integration

@@ -1006,3 +1006,24 @@ def test_parser_epilog_references_man_and_url() -> None:
     assert "man dhcpt" in epilog
     assert "https://github.com/epicade/dhcpt" in epilog
     assert "README.md" not in epilog
+
+
+def test_package_public_api() -> None:
+    import dhcpt
+
+    expected_symbols = [
+        "DHCPOffer",
+        "DHCPOptionItem",
+        "build_dhcp_discover",
+        "build_option_82",
+        "decode_rfc3397_domain_search",
+        "is_layer3_interface",
+        "parse_classless_routes",
+        "parse_dhcp_packet",
+        "parse_option_82",
+        "send_and_receive_dhcp",
+        "__version__",
+    ]
+    for symbol in expected_symbols:
+        assert hasattr(dhcpt, symbol), f"Expected symbol '{symbol}' in dhcpt package exports"
+    assert dhcpt.__all__ == expected_symbols

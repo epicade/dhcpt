@@ -7,7 +7,34 @@ on:
     branches: [main]
 
 jobs:
+  lint-shell-and-docs:
+    name: Lint Shell & Manpage
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies (ShellCheck, Zsh, Groff, man-db)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck zsh groff man-db
+
+      - name: Validate Bash Completion with ShellCheck and Syntax
+        run: |
+          shellcheck completions/bash/dhcpt
+          bash -o noexec completions/bash/dhcpt
+
+      - name: Validate Zsh Completion Syntax and Runtime Loading
+        run: |
+          zsh --noexec completions/zsh/_dhcpt
+          zsh -f -c 'autoload -Uz compinit && compinit -D && source completions/zsh/_dhcpt'
+
+      - name: Validate UNIX Manpage Formatting
+        run: |
+          man -l man/dhcpt.1 > /dev/null
+
   test:
+    name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
