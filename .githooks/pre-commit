@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -e
+
+echo "[pre-commit] Running ruff lint check..."
+ruff check .
+
+echo "[pre-commit] Running ruff format check..."
+ruff format --check .
+
+echo "[pre-commit] Running pytest test suite..."
+PYTHONPATH=src pytest -q
+
+echo "[pre-commit] All checks passed successfully!"
