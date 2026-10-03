@@ -878,6 +878,8 @@ def test_main_completion_zsh(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     assert "#compdef dhcpt" in captured.out
     assert "_dhcpt_servers" in captured.out
+    assert "--install-skill" in captured.out
+    assert "--force" in captured.out
 
 
 def test_main_completion_bash(capsys: pytest.CaptureFixture[str]) -> None:
@@ -886,6 +888,9 @@ def test_main_completion_bash(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     assert "_dhcpt_bash" in captured.out
     assert "complete -F _dhcpt_bash dhcpt" in captured.out
+    assert "--install-skill" in captured.out
+    assert "--force" in captured.out
+    assert "DHCPT_SERVER_PATTERNS" in captured.out
 
 
 def test_main_completion_not_found(capsys: pytest.CaptureFixture[str]) -> None:

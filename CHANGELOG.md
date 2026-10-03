@@ -9,11 +9,14 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 ---
 
 ### New
+* Add shared-data mappings in pyproject.toml for automatic shell completion installation in system and global environments
+* Add dynamic DIM autocompletion to Bash completion script (DHCPT_SERVER_PATTERNS, circuit-ids, relay-subnets)
 * Add assistant auto-detection and overwrite protection (--force) to --install-skill
 * Add --install-skill CLI flag to deploy agent skills for Gemini CLI, Claude Code, or Mistral Vibe
 * Add UNIX manpage dhcpt(1) with shared-data installation for pipx and Linux package managers
 
 ### Changes
+* Document both automatic system-wide and user-level shell completion setup in README
 * Author UNIX manpage in Markdown (man/dhcpt.1.md) and compile to troff via pandoc
 * Expand public SKILL.md and README with comprehensive Layer 3, WireGuard, and dynamic interface testing recipes
 * Format DIM reference as [DIM - DNS and IP Management](https://github.com/ionos-core/dim) in README
