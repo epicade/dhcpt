@@ -35,11 +35,13 @@ _dhcpt_servers() {
   local cache_file="$cache_dir/servers.cache"
   local pattern s_ip s_hosts
 
-  # If ndcli is installed, query DHCP servers only if $DHCPT_SERVER_PATTERNS is configured
+  # If ndcli is installed, query DHCP servers from DIM - DNS and IP Management (https://github.com/ionos-core/dim)
+  # only if $DHCPT_SERVER_PATTERNS is configured (to avoid wildcards against huge DNS tables)
   if (( $+commands[ndcli] )); then
     if [[ -z "$DHCPT_SERVER_PATTERNS" ]]; then
       print -u2 "\n[dhcpt] Error: 'ndcli' is installed, but \$DHCPT_SERVER_PATTERNS is not set."
-      print -u2 "[dhcpt] To enable DHCP server autocompletion from DIM, define search patterns in ~/.zshrc, e.g.:"
+      print -u2 "[dhcpt] To enable DHCP server autocompletion from DIM - DNS and IP Management (https://github.com/ionos-core/dim),"
+      print -u2 "[dhcpt] define search patterns in ~/.zshrc or ~/.bashrc, e.g.:"
       print -u2 "[dhcpt]   export DHCPT_SERVER_PATTERNS=\"dhcp*.example.com dhcp*.corp.internal\"\n"
       _message "[dhcpt] \$DHCPT_SERVER_PATTERNS not set (see stderr explanation)"
       return 1
@@ -53,14 +55,15 @@ _dhcpt_servers() {
         ip = $5
         name = $1 "." $2
         if (ip in h) {
-          if (h[ip] !~ name) h[ip] = h[ip] ", " name
+          h[ip] = h[ip] ", " name
         } else {
           h[ip] = name
         }
-      }
-      END {
-        for (ip in h) print ip ":" h[ip]
-      }' | sort -V > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null
+      } END {
+        for (ip in h) {
+          print ip ":" h[ip]
+        }
+      }' > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null
     fi
   fi
 
@@ -71,104 +74,114 @@ _dhcpt_servers() {
   fi
 
   if (( ${#servers} )); then
-    _describe -t dhcp-servers 'DHCP Server IP' servers -qS ','
+    _describe -t dhcp-servers 'DHCP Server (IP / Name)' servers -qS ','
   else
-    _message 'DHCP Server IP or Hostname'
+    _message 'DHCP Server IP or FQDN'
   fi
 }
 
-_dhcpt_circuit_ids() {
+_dhcpt_circuits() {
   local -a circuits
   local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dhcpt"
   local cache_file="$cache_dir/vlans.cache"
+  local c_val c_desc
 
   if (( $+commands[ndcli] )); then
     if [[ ! -f "$cache_file" || $(find "$cache_file" -mtime +1 2>/dev/null) ]]; then
       mkdir -p "$cache_dir" 2>/dev/null
-      ndcli list pools 2>/dev/null | awk 'NR>1 && $2 ~ /^[0-9]+$/ {print "Vlan" $2 ":" $1; print $1 ":VLAN " $2}' > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null
+      ndcli list pools 2>/dev/null | awk 'NR>1 {
+        if ($2 ~ /^[0-9]+$/) {
+          print "Vlan" $2 ":Pool " $1 " (VLAN " $2 ")"
+          print $1 ":Pool " $1 " (VLAN " $2 ")"
+        } else {
+          print $1 ":Pool " $1
+        }
+      }' > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null
     fi
+  fi
 
-    if [[ -s "$cache_file" ]]; then
-      while IFS=: read -r c_val c_desc; do
-        [[ -n "$c_val" ]] && circuits+=("${c_val}:${c_desc}")
-      done < "$cache_file"
-    fi
+  if [[ -s "$cache_file" ]]; then
+    while IFS=: read -r c_val c_desc; do
+      [[ -n "$c_val" ]] && circuits+=("${c_val}:${c_desc}")
+    done < "$cache_file"
   fi
 
   if (( ${#circuits} )); then
     _describe -t circuit-ids 'Cisco Circuit-ID (Vlan<id> / Pool)' circuits
   else
-    _message 'Cisco Circuit-ID (e.g. Vlan100, GigabitEthernet1/0/1)'
+    _message 'Circuit-ID (e.g. Vlan100, GigabitEthernet0/1)'
   fi
 }
 
-_dhcpt_relay_subnets() {
+_dhcpt_subnets() {
   local -a subnets
   local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dhcpt"
   local cache_file="$cache_dir/subnets.cache"
+  local s_cidr s_pool
 
   if (( $+commands[ndcli] )); then
     if [[ ! -f "$cache_file" || $(find "$cache_file" -mtime +1 2>/dev/null) ]]; then
       mkdir -p "$cache_dir" 2>/dev/null
       ndcli list pools 2>/dev/null | awk 'NR>1 {for (i=3; i<NF; i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$/) print $i ":" $1}' > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null
     fi
+  fi
 
-    if [[ -s "$cache_file" ]]; then
-      while IFS=: read -r sub_val sub_pool; do
-        [[ -n "$sub_val" ]] && subnets+=("${sub_val}:${sub_pool}")
-      done < "$cache_file"
-    fi
+  if [[ -s "$cache_file" ]]; then
+    while IFS=: read -r s_cidr s_pool; do
+      [[ -n "$s_cidr" ]] && subnets+=("${s_cidr}:Pool ${s_pool}")
+    done < "$cache_file"
   fi
 
   if (( ${#subnets} )); then
-    _describe -t relay-subnets 'Relay Subnet / Pool Gateway' subnets
+    _describe -t relay-subnets 'Relay Subnet / Link Selection (CIDR:Pool)' subnets
   else
-    _message 'Target Subnet Gateway IP (e.g. 10.50.1.1)'
+    _message 'Subnet Gateway IP (e.g. 10.50.1.1)'
   fi
 }
 
 _dhcpt_interfaces() {
   local -a ifaces
-  local dev_path iface operstate carrier mac
-  for dev_path in /sys/class/net/*; do
-    iface="${dev_path##*/}"
-    [[ "$iface" == "lo" ]] && continue
-    operstate="$(< "$dev_path/operstate" 2>/dev/null || echo unknown)"
-    carrier="$(< "$dev_path/carrier" 2>/dev/null || echo '?')"
-    mac="$(< "$dev_path/address" 2>/dev/null || echo '-')"
-    ifaces+=("${iface}:${operstate}, carrier:${carrier}, mac:${mac}")
+  local ifname operstate carrier mac desc
+  local d
+
+  for d in /sys/class/net/*(N); do
+    ifname="${d:t}"
+    [[ "$ifname" == "lo" ]] && continue
+    operstate=$(<"$d/operstate" 2>/dev/null || echo "unknown")
+    carrier=$(<"$d/carrier" 2>/dev/null || echo "?")
+    mac=$(<"$d/address" 2>/dev/null || echo "no-mac")
+
+    desc="${operstate}"
+    [[ "$carrier" == "1" ]] && desc="${desc}, link up"
+    [[ "$mac" != "no-mac" && "$mac" != "00:00:00:00:00:00" ]] && desc="${desc}, ${mac}"
+
+    ifaces+=("${ifname}:${desc}")
   done
 
-  if (( ${#ifaces} )); then
-    _describe -t interfaces 'Network Interface' ifaces
-  else
-    _net_interfaces
-  fi
+  _describe -t net-interfaces 'Network Interface' ifaces
 }
 
 _dhcpt() {
-  local curcontext="$curcontext" state line
-  typeset -A opt_args
-
   _arguments -s \
-    '(-i --interface 1)'{-i,--interface}'[Network interface to send DHCP Discover on]:Network Interface:_dhcpt_interfaces' \
-    '(-s --server --servers)'{-s,--server,--servers}'[Target dedicated DHCP server IP(s)]:DHCP Server:_dhcpt_servers' \
-    '--circuit-id[Simulate Cisco Option 82 Sub-option 1 Circuit ID]:Circuit ID / VLAN:_dhcpt_circuit_ids' \
-    '--remote-id[Simulate Cisco Option 82 Sub-option 2 Remote ID]:Remote ID:' \
-    '--relay-subnet[Target subnet gateway IP to request pool from]:Relay Subnet:_dhcpt_relay_subnets' \
-    '--giaddr[Explicitly override BOOTP Relay Agent Gateway IP]:Gateway IP:' \
-    '--completion[Generate shell completion script and exit]:Shell:(zsh bash)' \
-    '(-t --timeout)'{-t,--timeout}'[Timeout in seconds to wait for DHCP Offers]:Timeout (seconds):' \
-    '(-a --all)'{-a,--all}'[Listen for full timeout duration to capture all DHCP Offers]' \
-    '(-m --mac)'{-m,--mac}'[Override client MAC address]:MAC Address:' \
-    '(-o --request-options)'{-o,--request-options}'[Additional DHCP option codes or names to request]:Option Name:_dhcpt_options' \
-    '--clear-default-options[Do not include default RFC options in PRL]' \
-    '--no-broadcast[Do not set BOOTP broadcast flag (requests unicast)]' \
+    '(-i --interface 1)'{-i,--interface}'[Target network interface]:Network Interface:_dhcpt_interfaces' \
+    '(-s --dhcp-servers --dhcp-server --server --servers)'{-s,--dhcp-servers}'[Query dedicated remote DHCP server(s)]:DHCP Server:_dhcpt_servers' \
+    '--circuit-id[Simulate Option 82 Circuit ID]:Circuit-ID:_dhcpt_circuits' \
+    '--remote-id[Simulate Option 82 Remote ID]:Remote-ID / Switch Hostname:_hosts' \
+    '(--target-gateway --relay-subnet)'{--target-gateway}'[Simulate remote subnet via RFC 3527 Link Selection]:Target Subnet Gateway IP:_dhcpt_subnets' \
+    '--giaddr[Explicitly override BOOTP Relay Agent Gateway IP (giaddr)]:Gateway IP:_message "Gateway IP (e.g. 10.50.1.254)"' \
+    '(-t --timeout)'{-t,--timeout}'[Timeout in seconds to wait for responses]:Seconds:(1 2 3 5 10 15 30)' \
+    '(-a --all)'{-a,--all}'[Capture all responding DHCP servers (rogue detection)]' \
+    '(-m --mac)'{-m,--mac}'[Override client hardware MAC address]:MAC Address:_message "MAC Address (e.g. 00:11:22:33:44:55)"' \
+    '(-o --request-options)'{-o,--request-options}'[Request custom DHCP options]:DHCP Options:_dhcpt_options' \
+    '--clear-default-options[Clear default requested options (request only explicit options with -o)]' \
+    '--no-broadcast[Do not set broadcast flag in discover (request unicast offer)]' \
     '(-d --debug)'{-d,--debug}'[Enable detailed debug logging]' \
     '(-v --verbose)'{-v,--verbose}'[Enable informational logging]' \
-    '(-j --json)'{-j,--json}'[Output results in JSON format]' \
+    '(-j --json)'{-j,--json}'[Output results formatted as JSON]' \
     '(-l --list-interfaces)'{-l,--list-interfaces}'[List available network interfaces and exit]' \
     '--list-options[List known RFC DHCP options and exit]' \
+    '--install-skill[Install AI agent skill for Gemini CLI, Claude Code, or Mistral Vibe]:Assistant Target:(all gemini claude mistral)' \
+    '--force[Force overwrite of existing skill files or symlinks during --install-skill]' \
     '--version[Show program version and exit]' \
     '(-h --help)'{-h,--help}'[Show help message and exit]' \
     '(-i --interface 1)1:Network Interface:_dhcpt_interfaces'

@@ -1,3 +1,4 @@
+# shellcheck shell=bash disable=SC2207
 # Bash completion for dhcpt (DHCP Tester)
 # https://github.com/epicade/dhcpt
 
@@ -7,14 +8,15 @@ _dhcpt_bash() {
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
 
-    opts="-i --interface -s --server --servers --circuit-id --remote-id --relay-subnet --giaddr -t --timeout -a --all -m --mac -o --request-options --clear-default-options --no-broadcast -d --debug -v --verbose -j --json -l --list-interfaces --list-options --completion --version -h --help"
+    opts="-i --interface -s --dhcp-servers --circuit-id --remote-id --target-gateway --giaddr -t --timeout -a --all -m --mac -o --request-options --clear-default-options --no-broadcast -d --debug -v --verbose -j --json -l --list-interfaces --list-options --install-skill --force --completion --version -h --help"
 
     case "${prev}" in
         -i|--interface)
             local ifaces=""
-            if [ -d /sys/class/net ]; then
-                ifaces=$(ls /sys/class/net | grep -v '^lo$')
-            fi
+            for ifpath in /sys/class/net/*; do
+                local ifname="${ifpath##*/}"
+                [[ "$ifname" != "lo" && -e "$ifpath" ]] && ifaces+="${ifname} "
+            done
             COMPREPLY=( $(compgen -W "${ifaces}" -- "${cur}") )
             return 0
             ;;
@@ -22,10 +24,79 @@ _dhcpt_bash() {
             COMPREPLY=( $(compgen -W "zsh bash" -- "${cur}") )
             return 0
             ;;
+        --install-skill)
+            COMPREPLY=( $(compgen -W "all gemini claude mistral" -- "${cur}") )
+            return 0
+            ;;
         -o|--request-options)
             local dhcp_options="subnet_mask router name_server hostname domain interface_mtu broadcast_address static_routes ntp_servers vendor_specific tftp_server_name bootfile_name client_fqdn domain_search classless_static_routes ms_classless_static_routes wpad"
             COMPREPLY=( $(compgen -W "${dhcp_options}" -- "${cur}") )
             return 0
+            ;;
+        -s|--dhcp-servers|--dhcp-server|--server|--servers)
+            local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dhcpt"
+            local cache_file="$cache_dir/servers.cache"
+            local servers=""
+            local pattern
+
+            # If ndcli is installed, query DHCP servers from DIM - DNS and IP Management (https://github.com/ionos-core/dim)
+            # only if $DHCPT_SERVER_PATTERNS is configured (to avoid wildcards against huge DNS tables)
+            if command -v ndcli >/dev/null 2>&1; then
+                if [[ -z "$DHCPT_SERVER_PATTERNS" ]]; then
+                    printf "\n[dhcpt] Error: 'ndcli' is installed, but \$DHCPT_SERVER_PATTERNS is not set.\n" >&2
+                    printf "[dhcpt] To enable DHCP server autocompletion from DIM - DNS and IP Management (https://github.com/ionos-core/dim),\n" >&2
+                    printf "[dhcpt] define search patterns in ~/.bashrc or ~/.zshrc, e.g.:\n" >&2
+                    printf "[dhcpt]   export DHCPT_SERVER_PATTERNS=\"dhcp*.example.com dhcp*.corp.internal\"\n\n" >&2
+                    return 1
+                fi
+
+                if [[ ! -f "$cache_file" || $(find "$cache_file" -mtime +1 2>/dev/null) ]]; then
+                    mkdir -p "$cache_dir" 2>/dev/null
+                    for pattern in $DHCPT_SERVER_PATTERNS; do
+                        ndcli list rrs "$pattern" -H 2>/dev/null
+                    done | awk '($4 == "A" || $4 == "AAAA") { print $5; print $1 "." $2 }' | sort -u > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null
+                fi
+            fi
+
+            if [[ -s "$cache_file" ]]; then
+                servers=$(cat "$cache_file")
+                COMPREPLY=( $(compgen -W "${servers}" -- "${cur}") )
+                return 0
+            fi
+            ;;
+        --circuit-id)
+            local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dhcpt"
+            local cache_file="$cache_dir/vlans.cache"
+            local circuits=""
+
+            if command -v ndcli >/dev/null 2>&1; then
+                if [[ ! -f "$cache_file" || $(find "$cache_file" -mtime +1 2>/dev/null) ]]; then
+                    mkdir -p "$cache_dir" 2>/dev/null
+                    ndcli list pools 2>/dev/null | awk 'NR>1 && $2 ~ /^[0-9]+$/ {print "Vlan" $2; print $1}' | sort -u > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null
+                fi
+                if [[ -s "$cache_file" ]]; then
+                    circuits=$(cat "$cache_file")
+                    COMPREPLY=( $(compgen -W "${circuits}" -- "${cur}") )
+                    return 0
+                fi
+            fi
+            ;;
+        --target-gateway|--relay-subnet)
+            local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/dhcpt"
+            local cache_file="$cache_dir/subnets.cache"
+            local subnets=""
+
+            if command -v ndcli >/dev/null 2>&1; then
+                if [[ ! -f "$cache_file" || $(find "$cache_file" -mtime +1 2>/dev/null) ]]; then
+                    mkdir -p "$cache_dir" 2>/dev/null
+                    ndcli list pools 2>/dev/null | awk 'NR>1 {for (i=3; i<NF; i++) if ($i ~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+\/[0-9]+$/) print $i}' | sort -u > "$cache_file.tmp" 2>/dev/null && mv "$cache_file.tmp" "$cache_file" 2>/dev/null
+                fi
+                if [[ -s "$cache_file" ]]; then
+                    subnets=$(cat "$cache_file")
+                    COMPREPLY=( $(compgen -W "${subnets}" -- "${cur}") )
+                    return 0
+                fi
+            fi
             ;;
         *)
             ;;
@@ -38,9 +109,10 @@ _dhcpt_bash() {
 
     # Complete available network interfaces
     local ifaces=""
-    if [ -d /sys/class/net ]; then
-        ifaces=$(ls /sys/class/net | grep -v '^lo$')
-    fi
+    for ifpath in /sys/class/net/*; do
+        local ifname="${ifpath##*/}"
+        [[ "$ifname" != "lo" && -e "$ifpath" ]] && ifaces+="${ifname} "
+    done
     COMPREPLY=( $(compgen -W "${ifaces}" -- "${cur}") )
     return 0
 }
