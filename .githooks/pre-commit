@@ -7,6 +7,24 @@ ruff check .
 echo "[pre-commit] Running ruff format check..."
 ruff format --check .
 
+if command -v pandoc >/dev/null 2>&1; then
+    echo "[pre-commit] Validating manpage is up-to-date with Markdown source..."
+    TMP_MAN=$(mktemp)
+    pandoc man/dhcpt.1.md -s -t man -f markdown-smart -o "$TMP_MAN"
+    if ! cmp -s man/dhcpt.1 "$TMP_MAN"; then
+        echo "[ERROR] man/dhcpt.1 is out of date with man/dhcpt.1.md!" >&2
+        echo "        Run 'make man' to recompile the manpage." >&2
+        rm -f "$TMP_MAN"
+        exit 1
+    fi
+    rm -f "$TMP_MAN"
+fi
+
+if command -v man >/dev/null 2>&1; then
+    echo "[pre-commit] Validating manpage formatting..."
+    man -l man/dhcpt.1 >/dev/null
+fi
+
 echo "[pre-commit] Running pytest test suite..."
 PYTHONPATH=src pytest -q
 
