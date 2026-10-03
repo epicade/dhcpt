@@ -13,7 +13,7 @@ description: Test and troubleshoot DHCP servers, pools, and Option 82 relays —
 
 Trigger this skill whenever you need to:
 1. **Verify if a DHCP server is responding** on a network segment or VLAN without configuring an interface or consuming an IP lease.
-2. **Simulate a Cisco/Juniper/Arista/Linux DHCP Relay Agent (`ip helper-address`)** to test whether central DHCP servers (e.g. Anycast servers) have an active pool for a specific subnet.
+2. **Simulate a DHCP Relay Agent (e.g. Cisco `ip helper-address`, Juniper `dhcp-relay`)** to test whether central DHCP servers (e.g. Anycast servers) have an active pool for a specific subnet.
 3. **Detect Rogue DHCP Servers** on a local broadcast domain.
 4. **Debug Option 82 / Circuit-ID routing** to check if DHCP servers apply the expected policies.
 5. **Inspect pushed DHCP options** (Subnet Mask, Default Gateway, DNS, NTP, Domain Search List, RFC 3442 Classless Static Routes).
@@ -60,9 +60,9 @@ sudo dhcpt eth0
 ```
 
 ### 2. Layer 3 Tunnel / VPN Testing (WireGuard / OpenVPN TUN)
-On Layer 3 point-to-point interfaces without MAC addresses, `dhcpt` automatically uses IP-level I/O:
+On Layer 3 interfaces without hardware MAC addresses, `dhcpt` automatically uses IP-level I/O (`AF_INET` raw sockets). Superuser privileges (`sudo`) are still required because raw socket creation requires the Linux `CAP_NET_RAW` capability:
 ```bash
-sudo dhcpt -i wg0 -s 10.1.1.1 --relay-subnet 10.50.1.1
+sudo dhcpt -i wg0 --dhcp-servers 10.1.1.1 --target-gateway 10.50.1.1
 ```
 
 ### 3. Rogue DHCP Server Detection (`--all`)
@@ -72,27 +72,28 @@ sudo dhcpt -i eth0 --all --timeout 5
 ```
 *If multiple distinct servers answer, `dhcpt` outputs a `[WARN]` and lists every server ID, MAC, and offered IP.*
 
-### 4. DHCP Relay Agent & IP-Helper Simulation (Cisco, Juniper, Linux)
+### 4. DHCP Relay Agent & IP-Helper Simulation
 When testing whether dedicated DHCP servers respond for a remote VLAN or subnet:
 ```bash
 # Test target server (IP or FQDN) with RFC 3527 Link Selection for the target subnet:
-sudo dhcpt -i eth0 -s 192.0.2.1 --relay-subnet 10.50.1.1 --circuit-id Vlan100
-sudo dhcpt -i eth0 -s dhcp1.example.com --relay-subnet 10.50.1.1 --circuit-id Vlan100
+sudo dhcpt -i eth0 --dhcp-servers 192.0.2.1 --target-gateway 10.50.1.1 --circuit-id Vlan100
+sudo dhcpt -i eth0 --dhcp-servers dhcp1.example.com --target-gateway 10.50.1.1 --circuit-id Vlan100
 
 # Test multiple dedicated DHCP servers simultaneously:
-sudo dhcpt -i eth0 -s 10.1.1.1,10.1.1.2,10.1.1.3,10.1.1.4 --relay-subnet 10.50.1.1 --circuit-id Vlan100 --remote-id sw-core01
+sudo dhcpt -i eth0 --dhcp-servers 10.1.1.1,10.1.1.2,10.1.1.3,10.1.1.4 --target-gateway 10.50.1.1 --circuit-id Vlan100 --remote-id sw-core01
 ```
 
-* **Why `--relay-subnet` (RFC 3527 Link Selection)?**
-  RFC 2131 dictates that DHCP servers reply to `giaddr`. Setting `--relay-subnet <gateway_ip>` tells the DHCP server which pool to allocate from while directing the reply back to your machine's IP.
+* **Why `--target-gateway` (RFC 3527 Link Selection)?**
+  RFC 2131 dictates that DHCP servers reply to `giaddr`. Setting `--target-gateway <gateway_ip>` (or alias `--relay-subnet`) tells the DHCP server which address pool to allocate from — specifically, the gateway IP configured as the identifier for that VLAN in the DHCP server's subnet declaration. Meanwhile, `dhcpt` sets `giaddr` to your local machine IP so the DHCP server routes the reply directly back to you across routed networks.
 
 ### 5. Request Custom DHCP Options (`-o`)
-Standard options (Subnet Mask, Router, DNS, NTP, Domain, Classless Routes, WPAD) are included by default. To request additional options:
+Standard options (Subnet Mask, Router, DNS, NTP, Domain, Classless Routes, WPAD) are included by default. To request additional options (e.g. for PXE netboot or VoIP):
 ```bash
 sudo dhcpt -i eth0 -o 12,26,66,67
 # or by name:
 sudo dhcpt -i eth0 -o hostname,tftp_server_name,interface_mtu
 ```
+*Tip: Run `dhcpt --list-options` to inspect all supported options and codes, or consult the [IANA BOOTP/DHCP Parameters Registry](https://www.iana.org/assignments/bootp-dhcp-parameters).*
 
 ### 6. Machine-Readable JSON Output
 ```bash
