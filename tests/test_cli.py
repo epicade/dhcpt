@@ -813,6 +813,24 @@ def test_main_cisco_relay_simulation_flow(capsys: pytest.CaptureFixture[str]) ->
         assert call_kwargs.get("relay_subnet") == "10.50.1.1"
 
 
+def test_main_cisco_relay_simulation_target_gateway(capsys: pytest.CaptureFixture[str]) -> None:
+    mock_offer = DHCPOffer(
+        server_ip="10.1.1.1",
+        server_mac="00:11:22:33:44:55",
+        offered_ip="10.50.1.150",
+        server_id="10.1.1.1",
+    )
+    with (
+        patch.object(dhcpt_mod, "get_interface_diagnostics", return_value={"exists": True, "operstate": "up"}),
+        patch.object(dhcpt_mod, "get_if_hwaddr", return_value="00:11:22:33:44:55"),
+        patch.object(dhcpt_mod, "send_and_receive_dhcp", return_value=[mock_offer]) as mock_send,
+    ):
+        exit_code = main(["-i", "eth0", "-s", "10.1.1.1", "--target-gateway", "10.50.1.1"])
+        assert exit_code == 0
+        call_kwargs = mock_send.call_args.kwargs
+        assert call_kwargs.get("relay_subnet") == "10.50.1.1"
+
+
 def test_main_completion_zsh(capsys: pytest.CaptureFixture[str]) -> None:
     exit_code = main(["--completion", "zsh"])
     assert exit_code == 0
@@ -887,3 +905,11 @@ def test_main_multi_server_all_success(capsys: pytest.CaptureFixture[str]) -> No
     ):
         exit_code = main(["-i", "eth0", "-s", "10.1.1.1,10.1.1.2"])
         assert exit_code == 0
+
+
+def test_parser_epilog_references_man_and_url() -> None:
+    parser = dhcpt_mod.build_parser()
+    epilog = parser.epilog or ""
+    assert "man dhcpt" in epilog
+    assert "https://github.com/epicade/dhcpt" in epilog
+    assert "README.md" not in epilog

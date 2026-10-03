@@ -28,10 +28,10 @@ Features:
 - Explicit interface targeting: Target interfaces explicitly via -i/--interface
   or positionally. If omitted, displays an interface table with diagnostics and exits cleanly.
 - Validates network interface existence and operational state via sysfs.
-- DHCP Relay Agent & IP-Helper simulation (Cisco, Juniper, Arista, Linux):
+- DHCP Relay Agent & IP-Helper simulation:
   * Target specific dedicated DHCP servers via Layer 3 unicast (-s / --server).
   * Simulate Option 82 Relay Agent parameters (--circuit-id, --remote-id).
-  * Simulate target subnets via RFC 3527 Link Selection (--relay-subnet).
+  * Simulate target subnets via RFC 3527 Link Selection (--target-gateway).
   * Direct BOOTP relay agent gateway IP specification (--giaddr).
 - Generates standards-compliant DHCP Discover packets with configurable
   Parameter Request List (Option 55) and Client Identifier (Option 61).
@@ -1151,7 +1151,9 @@ def format_offers_text(
         if diagnostics.get("carrier") == "0":
             lines.append(f"  * Interface '{interface}' has NO CARRIER (cable disconnected or switch port down).")
         lines.append("  * Verify VLAN tagging: Is the interface on the expected VLAN/PVID?")
-        lines.append("  * Verify DHCP Relay / IP-Helper: Is 'ip helper-address <ip>' configured on the Cisco SVI?")
+        lines.append(
+            "  * Verify DHCP Relay / IP-Helper: Is a relay configured on the switch/router (e.g. Cisco 'ip helper-address')?"
+        )
         lines.append(
             "  * Verify routing / firewall: Ensure UDP port 67 and 68 are permitted between client/relay and DHCP server."
         )
@@ -1283,14 +1285,14 @@ def build_parser() -> argparse.ArgumentParser:
         epilog="""\
 Examples:
   sudo dhcpt -i eth0                               # Standard broadcast check on eth0
-  sudo dhcpt -i eth0 -s 192.0.2.1 --relay-subnet 10.50.1.1 # Relay / IP-Helper simulation (RFC 3527)
+  sudo dhcpt -i eth0 -s 192.0.2.1 --target-gateway 10.50.1.1 # Relay / IP-Helper simulation (RFC 3527)
   sudo dhcpt -i eth0 --all --timeout 5             # Listen for all answering servers (detect rogue DHCP)
   sudo dhcpt -i eth0 --json                        # Structured JSON output for monitoring / scripts
   dhcpt --list-options                             # Show all supported RFC DHCP options (Option 55)
   dhcpt --list-interfaces                          # Show local network interfaces and link states
 
 Documentation & Relay Mechanics:
-  See README.md for full RFC 3527 Link Selection details and Cisco/Juniper configuration examples.
+  See 'man dhcpt' or https://github.com/epicade/dhcpt for full RFC 3527 Link Selection details and vendor configuration examples (e.g. Cisco, Juniper).
 """,
     )
     parser.add_argument(
@@ -1309,7 +1311,7 @@ Documentation & Relay Mechanics:
         help="Network interface to send DHCP Discover on (e.g. eth0, ens3, bond0).",
     )
 
-    relay_group = parser.add_argument_group("DHCP Relay & IP-Helper Simulation (Cisco, Juniper, Arista, Linux)")
+    relay_group = parser.add_argument_group("DHCP Relay & IP-Helper Simulation")
     relay_group.add_argument(
         "-s",
         "--server",
@@ -1317,31 +1319,38 @@ Documentation & Relay Mechanics:
         dest="servers",
         type=str,
         default=None,
-        help="Target dedicated DHCP server IP(s) or hostnames, comma-separated (e.g. -s 10.1.1.1,10.1.1.2). Simulates relay unicast forwarding.",
+        metavar="DHCP_SERVERS",
+        help="Target one or more remote DHCP servers directly via unicast (comma-separated). Corresponds to ip helper-address target on routers/switches.",
     )
     relay_group.add_argument(
+        "--target-gateway",
         "--relay-subnet",
+        dest="relay_subnet",
         type=str,
         default=None,
-        help="Target subnet gateway IP to request pool from (RFC 3527 Option 82 Sub-option 5 Link Selection).",
+        metavar="GATEWAY_IP",
+        help="Simulate originating from a remote subnet by specifying the gateway IP defined for that pool in the DHCP server configuration (RFC 3527 Link Selection). Instructs the server which pool to allocate from while routing replies back to the tester.",
     )
     relay_group.add_argument(
         "--circuit-id",
         type=str,
         default=None,
-        help="Simulate Option 82 Sub-option 1 Circuit ID (e.g. 'Vlan100', 'ge-0/0/1', RFC 3046).",
+        metavar="CIRCUIT_ID",
+        help="Simulate Option 82 Circuit ID (e.g. 'Vlan100', 'ge-0/0/1'). Use to test VLAN-specific or port-specific DHCP allocation policies and address pools.",
     )
     relay_group.add_argument(
         "--remote-id",
         type=str,
         default=None,
-        help="Simulate Option 82 Sub-option 2 Remote ID (e.g. switch hostname, MAC, or DUID, RFC 3046).",
+        metavar="REMOTE_ID",
+        help="Simulate Option 82 Remote ID (e.g. switch hostname, MAC, or DUID). Use to test switch-specific access control lists or location-based allocation policies.",
     )
     relay_group.add_argument(
         "--giaddr",
         type=str,
         default=None,
-        help="Explicitly override BOOTP Relay Agent Gateway IP (giaddr). Defaults to local IP when simulating relay.",
+        metavar="GIADDR",
+        help="Explicitly override BOOTP Relay Agent Gateway IP (giaddr). Defaults to local interface IP. Use to test legacy DHCP servers lacking RFC 3527 support.",
     )
 
     proto_group = parser.add_argument_group("Protocol & DHCP Packet Options")
@@ -1350,6 +1359,7 @@ Documentation & Relay Mechanics:
         "--request-options",
         type=str,
         default=None,
+        metavar="DHCP_OPTIONS",
         help=(
             "Additional DHCP option codes or names to request in Option 55 (PRL), comma-separated "
             "(e.g. -o 12,26,66,67 or -o hostname,tftp_server_name). Added to default RFC options."
@@ -1463,7 +1473,9 @@ def print_options_table() -> None:
         if code == 82:
             is_default = "(Recv)"
         print(f"  {code:<6} {name:<28} {is_default:<9} {rfc}")
-    print("\nTip: Pass additional options using -o/--request-options (e.g. dhcpt eth0 -o 66,67)")
+    print("\nTip: Any numeric option code (1-254) can be requested using -o (e.g. dhcpt eth0 -o 43,66,67).")
+    print("Official IANA BOOTP/DHCP Parameters Registry:")
+    print("  https://www.iana.org/assignments/bootp-dhcp-parameters")
 
 
 def get_completion_script(shell: str) -> str | None:
