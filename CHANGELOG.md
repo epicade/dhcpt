@@ -9,10 +9,13 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 ---
 
 ### New
+* Add assistant auto-detection and overwrite protection (--force) to --install-skill
+* Add --install-skill CLI flag to deploy agent skills for Gemini CLI, Claude Code, or Mistral Vibe
 * Add UNIX manpage dhcpt(1) with shared-data installation for pipx and Linux package managers
 
 ### Changes
 * Author UNIX manpage in Markdown (man/dhcpt.1.md) and compile to troff via pandoc
+* Expand public SKILL.md and README with comprehensive Layer 3, WireGuard, and dynamic interface testing recipes
 * Format DIM reference as [DIM - DNS and IP Management](https://github.com/ionos-core/dim) in README
 * Simplify system-wide installation documentation to use native pipx --global flag
 * Replace README reference in --help with 'man dhcpt' and GitHub documentation URL

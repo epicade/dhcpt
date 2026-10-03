@@ -56,6 +56,7 @@ import json
 import logging
 import random
 import re
+import shutil
 import socket
 import struct
 import sys
@@ -1436,6 +1437,19 @@ Documentation & Relay Mechanics:
         help="List known RFC DHCP options and their default request status, then exit.",
     )
     util_group.add_argument(
+        "--install-skill",
+        nargs="?",
+        const="all",
+        choices=["all", "gemini", "claude", "mistral"],
+        metavar="TARGET",
+        help="Install AI agent skill for Gemini CLI, Claude Code, or Mistral Vibe (targets: gemini, claude, mistral, all; default: all). Automatically detects installed assistants and refuses to overwrite existing files without --force.",
+    )
+    util_group.add_argument(
+        "--force",
+        action="store_true",
+        help="Force overwrite of existing skill files or symlinks during --install-skill.",
+    )
+    util_group.add_argument(
         "--completion",
         choices=["zsh", "bash"],
         default=None,
@@ -1528,12 +1542,146 @@ def print_completion_script(shell: str) -> bool:
     return False
 
 
+def get_skill_content() -> str | None:
+    """Retrieve SKILL.md content from package resources or local filesystem.
+
+    Searches for the bundled skill definition in the following order:
+    1. Python wheel package resources via importlib.resources (standard install).
+    2. Adjacent package directory (e.g. site-packages/dhcpt/skills/dhcpt/SKILL.md).
+    3. Git repository root directory (running directly from source checkout).
+
+    Returns:
+        The string content of SKILL.md if found, or None if it cannot be located.
+    """
+    # 1. Standard packaging in wheels / site-packages via importlib.resources
+    try:
+        import importlib.resources as pkg_resources
+
+        traversable = pkg_resources.files("dhcpt").joinpath("skills", "dhcpt", "SKILL.md")
+        if traversable.is_file():
+            return traversable.read_text(encoding="utf-8")
+    except Exception as err:
+        LOGGER.debug("importlib.resources resolution failed for skill: %s", err)
+
+    # 2. Adjacent package directory (e.g. site-packages/dhcpt/skills/dhcpt/SKILL.md)
+    candidate1 = Path(__file__).resolve().parent / "skills" / "dhcpt" / "SKILL.md"
+    if candidate1.is_file():
+        try:
+            return candidate1.read_text(encoding="utf-8")
+        except OSError as err:
+            LOGGER.debug("Reading %s failed: %s", candidate1, err)
+
+    # 3. Repository root directory (when running directly from git checkout src/dhcpt/cli.py)
+    candidate2 = Path(__file__).resolve().parent.parent.parent / "skills" / "dhcpt" / "SKILL.md"
+    if candidate2.is_file():
+        try:
+            return candidate2.read_text(encoding="utf-8")
+        except OSError as err:
+            LOGGER.debug("Reading %s failed: %s", candidate2, err)
+
+    return None
+
+
+AGENT_SKILL_TARGETS: dict[str, tuple[str, str, str]] = {
+    "gemini": (".gemini/skills/dhcpt", "Gemini CLI", "gemini"),
+    "claude": (".claude/skills/dhcpt", "Claude Code", "claude"),
+    "mistral": (".vibe/skills/dhcpt", "Mistral Vibe", "vibe"),
+}
+
+
+def is_agent_present(target_key: str) -> bool:
+    """Check whether a given AI assistant is installed or configured on the host system.
+
+    Determines presence by checking if the agent's primary configuration directory
+    (e.g. ~/.gemini, ~/.claude, ~/.vibe) exists, or if its CLI executable is on PATH.
+
+    Args:
+        target_key: Target assistant key ('gemini', 'claude', or 'mistral').
+
+    Returns:
+        True if the assistant configuration directory or binary exists, False otherwise.
+    """
+    rel_dir, _, cli_cmd = AGENT_SKILL_TARGETS[target_key]
+    base_dir = Path.home() / Path(rel_dir).parts[0]
+    return base_dir.is_dir() or shutil.which(cli_cmd) is not None
+
+
+def install_agent_skill(target: str = "all", force: bool = False) -> int:
+    """Install AI agent skill for Gemini CLI, Claude Code, or Mistral Vibe.
+
+    Locates the bundled SKILL.md definition and deploys it to the agent's designated
+    skill directory.
+
+    Safety & Protection Policies:
+    - Auto-detection: When target is 'all', only assistants actually detected on the host
+      system receive the skill. Missing assistant directories are not created.
+    - Overwrite protection: If SKILL.md already exists at the target destination (whether
+      as a regular file or symlink), installation refuses with an error unless force=True.
+
+    Args:
+        target: Target assistant ('gemini', 'claude', 'mistral', or 'all').
+        force: If True, overwrites existing skill files or symlinks.
+
+    Returns:
+        Exit code: 0 on success, 1 on failure or error.
+    """
+    content = get_skill_content()
+    if not content:
+        LOGGER.error("Skill definition file (SKILL.md) could not be located.")
+        print("Error: Skill definition file (SKILL.md) not found.", file=sys.stderr)
+        return 1
+
+    if target == "all":
+        # Only install for agents that are actually installed or configured on the system
+        selected_keys = [k for k in AGENT_SKILL_TARGETS if is_agent_present(k)]
+        if not selected_keys:
+            print(
+                "Error: No supported AI assistant environments detected (~/.gemini, ~/.claude, ~/.vibe). "
+                "Specify a target explicitly (e.g. --install-skill gemini) to install.",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        selected_keys = [target]
+
+    failures = 0
+
+    for key in selected_keys:
+        rel_path, name, _ = AGENT_SKILL_TARGETS[key]
+        dest_dir = Path.home() / rel_path
+        dest_file = dest_dir / "SKILL.md"
+
+        if dest_file.exists() or dest_file.is_symlink():
+            if not force:
+                print(
+                    f"Error: Skill file already exists at {dest_file}. Refusing to overwrite.",
+                    file=sys.stderr,
+                )
+                failures += 1
+                continue
+            dest_file.unlink()
+
+        try:
+            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_file.write_text(content, encoding="utf-8")
+            print(f"[OK] Installed {name} skill to {dest_file}")
+        except OSError as err:
+            LOGGER.error("Failed to install %s skill to %s: %s", name, dest_file, err)
+            print(f"Error: Failed to install {name} skill to {dest_file}: {err}", file=sys.stderr)
+            failures += 1
+
+    return 1 if failures else 0
+
+
 def _run(argv: list[str] | None = None) -> int:
     """Internal main execution entry point."""
     parser = build_parser()
     args = parser.parse_args(argv)
 
     setup_logging(debug=args.debug, verbose=args.verbose)
+
+    if args.install_skill:
+        return install_agent_skill(args.install_skill, force=args.force)
 
     if args.completion:
         success = print_completion_script(args.completion)

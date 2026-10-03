@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import mock_open, patch
 
 import pytest
@@ -953,3 +954,108 @@ def test_parser_epilog_references_man_and_url() -> None:
     assert "man dhcpt" in epilog
     assert "https://github.com/epicade/dhcpt" in epilog
     assert "README.md" not in epilog
+
+
+def test_get_skill_content() -> None:
+    content = dhcpt_mod.get_skill_content()
+    assert content is not None
+    assert "name: dhcpt" in content
+    assert "dhcpt - DHCP Testing & Troubleshooting Guide" in content
+
+
+def test_install_agent_skill_single(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    exit_code = dhcpt_mod.install_agent_skill("gemini")
+    assert exit_code == 0
+    skill_file = tmp_path / ".gemini" / "skills" / "dhcpt" / "SKILL.md"
+    assert skill_file.is_file()
+    assert "name: dhcpt" in skill_file.read_text(encoding="utf-8")
+    captured = capsys.readouterr()
+    assert "[OK] Installed Gemini CLI skill" in captured.out
+
+
+def test_install_agent_skill_all_only_detected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    # Simulate that only ~/.gemini exists on the system
+    (tmp_path / ".gemini").mkdir()
+
+    exit_code = dhcpt_mod.install_agent_skill("all")
+    assert exit_code == 0
+
+    assert (tmp_path / ".gemini" / "skills" / "dhcpt" / "SKILL.md").is_file()
+    assert not (tmp_path / ".claude").exists()
+    assert not (tmp_path / ".vibe").exists()
+
+    captured = capsys.readouterr()
+    assert "[OK] Installed Gemini CLI skill" in captured.out
+    assert "Claude" not in captured.out
+    assert "Mistral" not in captured.out
+
+
+def test_install_agent_skill_all_none_detected(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(dhcpt_mod.shutil, "which", lambda _cmd: None)
+    # No directories exist and no CLI binaries in PATH
+    exit_code = dhcpt_mod.install_agent_skill("all")
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "Error: No supported AI assistant environments detected" in captured.err
+
+
+def test_install_agent_skill_refuses_overwrite_without_force(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    dest_dir = tmp_path / ".gemini" / "skills" / "dhcpt"
+    dest_dir.mkdir(parents=True)
+    existing_file = dest_dir / "SKILL.md"
+    existing_file.write_text("existing custom content", encoding="utf-8")
+
+    # Attempt install without force -> should refuse and return error
+    exit_code = dhcpt_mod.install_agent_skill("gemini", force=False)
+    assert exit_code == 1
+    assert existing_file.read_text(encoding="utf-8") == "existing custom content"
+    captured = capsys.readouterr()
+    assert "Error: Skill file already exists" in captured.err
+    assert "Refusing to overwrite" in captured.err
+
+    # Attempt install with force -> should overwrite
+    exit_code = dhcpt_mod.install_agent_skill("gemini", force=True)
+    assert exit_code == 0
+    assert "name: dhcpt" in existing_file.read_text(encoding="utf-8")
+
+
+def test_main_install_skill_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    exit_code = main(["--install-skill", "claude"])
+    assert exit_code == 0
+    skill_file = tmp_path / ".claude" / "skills" / "dhcpt" / "SKILL.md"
+    assert skill_file.is_file()
+    captured = capsys.readouterr()
+    assert "[OK] Installed Claude Code skill" in captured.out
+
+
+def test_main_install_skill_cli_existing_refuses_unless_forced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    dest_dir = tmp_path / ".claude" / "skills" / "dhcpt"
+    dest_dir.mkdir(parents=True)
+    (dest_dir / "SKILL.md").write_text("old", encoding="utf-8")
+
+    exit_code = main(["--install-skill", "claude"])
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "Refusing to overwrite" in captured.err
+
+    exit_code_forced = main(["--install-skill", "claude", "--force"])
+    assert exit_code_forced == 0
+    assert (dest_dir / "SKILL.md").read_text(encoding="utf-8") != "old"
