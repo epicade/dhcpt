@@ -78,10 +78,16 @@ packages = ["src/dhcpt"]
 [tool.hatch.build.targets.wheel.force-include]
 "completions" = "dhcpt/completions"
 
+[tool.hatch.build.targets.wheel.shared-data]
+"man/dhcpt.1" = "share/man/man1/dhcpt.1"
+"docs/relay-mechanics.md" = "share/doc/dhcpt/relay-mechanics.md"
+
 [tool.hatch.build.targets.sdist]
 include = [
     "/src",
     "/completions",
+    "/man",
+    "/docs",
     "/README.md",
     "/LICENSE",
     "/CHANGELOG.md",
