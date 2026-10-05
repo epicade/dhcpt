@@ -11,9 +11,16 @@ install:  ## Install package in editable mode with development dependencies
 test:  ## Run pytest test suite
 	PYTHONPATH=src $(PYTHON) -m pytest -v
 
-lint:  ## Run linters (ruff, manpage)
+lint:  ## Run linters (ruff, shellcheck, zsh syntax, manpage)
 	ruff check .
 	ruff format --check .
+	shellcheck completions/bash/dhcpt
+	bash -o noexec completions/bash/dhcpt
+	@if command -v zsh >/dev/null 2>&1; then \
+		echo "Validating Zsh completions..."; \
+		zsh --noexec completions/zsh/_dhcpt; \
+		zsh -f -c 'autoload -Uz compinit && compinit -D -u && source completions/zsh/_dhcpt'; \
+	fi
 	@if command -v man >/dev/null 2>&1; then \
 		echo "Validating manpage formatting..."; \
 		man -l man/dhcpt.1 >/dev/null; \

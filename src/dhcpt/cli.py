@@ -296,7 +296,29 @@ def build_option_82(
     remote_id: str | None = None,
     link_selection: str | None = None,
 ) -> bytes:
-    """Construct raw Option 82 (Relay Agent Information) bytes."""
+    """Construct raw Option 82 (Relay Agent Information) payload bytes.
+
+    Encodes Relay Agent sub-options according to RFC 3046 and RFC 3527 into a
+    Type-Length-Value (TLV) byte sequence suitable for injection into BOOTP/DHCP
+    Option 82.
+
+    Sub-options supported:
+        - Sub-option 1: Agent Circuit ID (RFC 3046 §2.1)
+        - Sub-option 2: Agent Remote ID (RFC 3046 §2.2)
+        - Sub-option 5: Link Selection (RFC 3527 §2.1)
+
+    Args:
+        circuit_id: Circuit identifier (e.g. 'Vlan100', 'ge-0/0/1'). Max 255 bytes.
+        remote_id: Remote identifier (e.g. switch hostname or MAC). Max 255 bytes.
+        link_selection: IPv4 address string indicating the target subnet/pool.
+
+    Returns:
+        Raw bytes representing the assembled Option 82 sub-options payload.
+
+    Raises:
+        ValueError: If circuit_id or remote_id exceeds 255 bytes, or if link_selection
+            is not a valid IPv4 address.
+    """
     raw = bytearray()
     if circuit_id:
         c_bytes = circuit_id.encode("utf-8")
@@ -321,7 +343,23 @@ def build_option_82(
 
 
 def parse_option_82(data: bytes) -> dict[str, str]:
-    """Parse DHCP Option 82 (Relay Agent Information) sub-options."""
+    """Parse DHCP Option 82 (Relay Agent Information) sub-options into a key-value dictionary.
+
+    Decodes TLV (Type-Length-Value) sub-options from Option 82 payload bytes.
+
+    Known sub-options mapped:
+        - 1: circuit_id (string)
+        - 2: remote_id (string)
+        - 5: link_selection (IPv4 dotted-quad)
+        - 6: subscriber_id (string)
+        - 11: server_id_override (string)
+
+    Args:
+        data: Raw payload bytes of DHCP Option 82.
+
+    Returns:
+        Dictionary mapping sub-option names to their decoded string representations.
+    """
     suboptions: dict[str, str] = {}
     known_subopts = {
         1: "circuit_id",
@@ -348,7 +386,20 @@ def parse_option_82(data: bytes) -> dict[str, str]:
 
 
 def parse_classless_routes(raw_data: Any) -> list[str]:
-    """Parse RFC 3442 (Option 121) / Microsoft (Option 249) Classless Static Routes."""
+    """Parse RFC 3442 (Option 121) / Microsoft (Option 249) Classless Static Routes.
+
+    Decodes compact classless route descriptors. In RFC 3442 encoding, each route
+    consists of a 1-byte subnet mask width (0..32), followed by 0 to 4 significant
+    octets of the subnet prefix (calculated as ceil(mask_width / 8)), followed by
+    a 4-byte IPv4 router gateway address.
+
+    Args:
+        raw_data: Either a pre-parsed tuple/list of routes from Scapy, or raw bytes
+            representing the encoded option payload.
+
+    Returns:
+        List of formatted route strings, e.g. ['10.0.0.0/8 via 192.168.1.1', '0.0.0.0/0 via 10.1.1.1'].
+    """
     routes: list[str] = []
 
     if isinstance(raw_data, (list, tuple)):
@@ -367,11 +418,13 @@ def parse_classless_routes(raw_data: Any) -> list[str]:
         i += 1
         if mask_len > 32:
             break
+        # Compact prefix representation: ceil(mask_len / 8) significant octets
         prefix_bytes_len = (mask_len + 7) // 8
         if i + prefix_bytes_len + 4 > len(raw_data):
             break
         prefix_octets = list(raw_data[i : i + prefix_bytes_len])
         i += prefix_bytes_len
+        # Pad omitted zero octets up to standard 4-byte IPv4 length
         while len(prefix_octets) < 4:
             prefix_octets.append(0)
         prefix_ip = ".".join(str(b) for b in prefix_octets)
@@ -383,7 +436,17 @@ def parse_classless_routes(raw_data: Any) -> list[str]:
 
 
 def decode_rfc3397_domain_search(raw: bytes) -> list[str]:
-    """Decode RFC 3397 Domain Search Option bytes into a list of domain strings."""
+    """Decode RFC 3397 Domain Search Option bytes into a list of domain strings.
+
+    Parses the domain search list using DNS label encoding with compression pointers
+    (RFC 1035 §4.1.4 and RFC 3397 §2). Handles cyclic pointer loops safely.
+
+    Args:
+        raw: Raw bytes payload of DHCP Option 119 (Domain Search).
+
+    Returns:
+        List of fully-qualified domain name strings extracted from the search list.
+    """
     domains: list[str] = []
     i = 0
     total = len(raw)
@@ -876,16 +939,43 @@ def build_dhcp_discover(
     option_82_data: bytes | None = None,
     is_l3: bool = False,
 ) -> Any:
-    """Build a Scapy Layer 2 or Layer 3 DHCP Discover packet with requested options and relay fields."""
+    """Build a Scapy Layer 2 or Layer 3 DHCP Discover packet with requested options and relay fields.
+
+    Assembles standards-compliant packet layers according to RFC 2131 and RFC 2132:
+    - Layer 2 Ethernet header (Ether) with source MAC and target MAC (omitted if is_l3=True).
+    - IPv4 transport (IP / UDP): uses source port 68 for standard client broadcasts, or port 67
+      when simulating BOOTP relay forwarding (RFC 2131 §4.1).
+    - BOOTP header: op=1 (BOOTREQUEST), chaddr field padded to 16 bytes per RFC 2131 §2.
+    - DHCP options: message-type 'discover', client_id (Option 61 with hardware type 1 = Ethernet),
+      param_req_list (Option 55), and optional Option 82 Relay Agent Information.
+
+    Args:
+        mac_str: Client hardware MAC address string ('aa:bb:cc:dd:ee:ff').
+        xid: 32-bit transaction identifier.
+        broadcast: Whether to set the BOOTP broadcast flag (0x8000).
+        param_req_list: List of DHCP option codes to request in Option 55 (PRL).
+        dst_ip: Target destination IP ('255.255.255.255' or unicast DHCP server IP).
+        dst_mac: Target Layer 2 destination MAC address.
+        src_ip: Source IP address (usually '0.0.0.0', or local interface IP for relaying).
+        giaddr: BOOTP Relay Agent Gateway IP (RFC 2131).
+        hops: BOOTP hop count (0 for client broadcast, 1 for relay simulation).
+        option_82_data: Pre-constructed Option 82 payload bytes, if any.
+        is_l3: If True, omits Layer 2 Ethernet header and returns an IP packet.
+
+    Returns:
+        Scapy packet object ready for transmission via srp() (Layer 2) or sr() (Layer 3).
+    """
     if param_req_list is None:
         param_req_list = list(DEFAULT_REQUEST_OPTIONS)
 
     mac_raw = mac_to_bytes(mac_str)
+    # BOOTP chaddr is 16 bytes: 6-byte Ethernet MAC + 10 zero-padding bytes (RFC 2131 §2)
     chaddr = mac_raw + b"\x00" * 10
     flags = 0x8000 if broadcast else 0x0000
 
     dhcp_options: list[Any] = [
         ("message-type", "discover"),
+        # Option 61 (Client Identifier): type 0x01 (Ethernet) + MAC
         ("client_id", b"\x01" + mac_raw),
         ("param_req_list", param_req_list),
     ]
@@ -895,6 +985,7 @@ def build_dhcp_discover(
 
     dhcp_options.append("end")
 
+    # Relay agents forward on UDP port 67 -> 67; clients transmit on 68 -> 67
     sport = 67 if giaddr != "0.0.0.0" else 68
 
     ip_pkt = (
@@ -923,7 +1014,36 @@ def send_and_receive_dhcp(
     circuit_id: str | None = None,
     remote_id: str | None = None,
 ) -> list[DHCPOffer]:
-    """Transmit DHCP Discover (broadcast or unicast relay simulation) and collect Offer responses."""
+    """Transmit DHCP Discover (broadcast or unicast relay simulation) and collect Offer responses.
+
+    Supports dual-mode Layer 2 and Layer 3 I/O:
+    - Layer 2 Ethernet: Crafts Ethernet frames and transmits via Scapy's srp() (AF_PACKET raw socket).
+    - Layer 3 Point-to-Point: On tun/WireGuard devices, transmits IP packets via Scapy's sr() (AF_INET raw socket).
+
+    Relay Agent Simulation:
+    When servers or relay parameters are specified, simulates RFC 3527 Link Selection by setting
+    the BOOTP giaddr to local_ip (for reply routing) and Option 82 Sub-option 5 to the target subnet gateway.
+
+    Args:
+        interface: Network interface to transmit and sniff on.
+        mac_str: Client hardware MAC address to send in chaddr and Option 61.
+        timeout: Sniffing timeout in seconds to wait for responses.
+        listen_all: If True, continues listening for the full timeout window (rogue DHCP detection).
+        broadcast: Whether to set the BOOTP broadcast flag (0x8000).
+        param_req_list: Option codes to request in Option 55 (PRL).
+        servers: Optional list of dedicated DHCP server IPs/FQDNs to query via unicast.
+        giaddr: Explicit BOOTP relay gateway IP override.
+        relay_subnet: Target subnet gateway IP for RFC 3527 Link Selection.
+        circuit_id: Option 82 Sub-option 1 Circuit ID.
+        remote_id: Option 82 Sub-option 2 Remote ID.
+
+    Returns:
+        List of decoded DHCPOffer objects received from responding DHCP servers.
+
+    Raises:
+        RuntimeError: If Scapy is not available.
+        PermissionError: If insufficient privileges to open raw sockets.
+    """
     if not SCAPY_AVAILABLE:
         raise RuntimeError("Scapy is not installed. Please install python3-scapy via your package manager.")
 
@@ -1707,7 +1827,7 @@ def _run(argv: list[str] | None = None) -> int:
         try:
             ipaddress.IPv4Address(args.relay_subnet.strip())
         except ValueError:
-            LOGGER.error("Invalid IPv4 address for --relay-subnet: '%s'", args.relay_subnet)
+            LOGGER.error("Invalid IPv4 address for --target-gateway: '%s'", args.relay_subnet)
             return 2
 
     if args.giaddr:
