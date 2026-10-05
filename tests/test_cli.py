@@ -781,6 +781,13 @@ def test_main_invalid_server_ip(capsys: pytest.CaptureFixture[str]) -> None:
     assert "Invalid server IP address or unresolvable hostname" in captured.err
 
 
+def test_main_invalid_target_gateway(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = main(["-i", "eth0", "--target-gateway", "not-an-ip"])
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert "Invalid IPv4 address for --target-gateway" in captured.err
+
+
 def test_main_invalid_request_options(capsys: pytest.CaptureFixture[str]) -> None:
     exit_code = main(["-i", "eth0", "-o", "invalid_option_xyz"])
     assert exit_code == 2
@@ -1064,3 +1071,24 @@ def test_main_install_skill_cli_existing_refuses_unless_forced(
     exit_code_forced = main(["--install-skill", "claude", "--force"])
     assert exit_code_forced == 0
     assert (dest_dir / "SKILL.md").read_text(encoding="utf-8") != "old"
+
+
+def test_package_public_api() -> None:
+    import dhcpt
+
+    expected_symbols = [
+        "DHCPOffer",
+        "DHCPOptionItem",
+        "build_dhcp_discover",
+        "build_option_82",
+        "decode_rfc3397_domain_search",
+        "is_layer3_interface",
+        "parse_classless_routes",
+        "parse_dhcp_packet",
+        "parse_option_82",
+        "send_and_receive_dhcp",
+        "__version__",
+    ]
+    for symbol in expected_symbols:
+        assert hasattr(dhcpt, symbol), f"Expected symbol '{symbol}' in dhcpt package exports"
+    assert dhcpt.__all__ == expected_symbols
