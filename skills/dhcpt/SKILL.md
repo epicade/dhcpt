@@ -34,10 +34,11 @@ sudo apt update && sudo apt install -y python3-scapy
 # RHEL / Rocky / AlmaLinux / Oracle Linux:
 sudo dnf install -y python3-scapy
 
-# 2. Install dhcpt into /usr/local/bin (accessible in sudo secure_path):
-sudo PIPX_BIN_DIR=/usr/local/bin PIPX_HOME=/opt/pipx pipx install git+https://github.com/epicade/dhcpt.git
-# Or via pip:
-sudo pip install git+https://github.com/epicade/dhcpt.git
+# 2. Install latest release tag globally via pipx (places binary into /usr/local/bin):
+LATEST_TAG=$(git ls-remote --tags --refs https://github.com/epicade/dhcpt.git | tail -n1 | cut -d/ -f3)
+sudo pipx install --global "git+https://github.com/epicade/dhcpt.git@${LATEST_TAG}"
+# Or install a specific version tag (e.g. @v0.1.1):
+# sudo pipx install --global git+https://github.com/epicade/dhcpt.git@<tag>
 ```
 
 ### Passwordless Execution for AI Agents / Automation
@@ -60,8 +61,12 @@ sudo dhcpt eth0
 ```
 
 ### 2. Layer 3 Tunnel / VPN Testing (WireGuard / OpenVPN TUN)
-On Layer 3 interfaces without hardware MAC addresses, `dhcpt` automatically uses IP-level I/O (`AF_INET` raw sockets). Superuser privileges (`sudo`) are still required because raw socket creation requires the Linux `CAP_NET_RAW` capability:
+On Layer 3 interfaces without hardware MAC addresses, `dhcpt` automatically uses IP-level I/O (`AF_INET` raw sockets). Superuser privileges (`sudo`) are still required because raw socket creation requires the Linux `CAP_NET_RAW` capability. Always specify target server IPs (`-s`) and ensure your routing table directs traffic to the tunnel:
 ```bash
+# 1. Verify routing table sends traffic to tunnel interface:
+ip route get 10.1.1.1
+
+# 2. Run test over the tunnel:
 sudo dhcpt -i wg0 --dhcp-servers 10.1.1.1 --target-gateway 10.50.1.1
 ```
 
@@ -105,10 +110,19 @@ Standard options (Subnet Mask, Router, DNS, NTP, Domain, Classless Routes, WPAD)
 sudo dhcpt -i eth0 -o 12,26,66,67
 # or by name:
 sudo dhcpt -i eth0 -o hostname,tftp_server_name,interface_mtu
+
+# Request ONLY specific options without standard network defaults (e.g. for IoT/PXE):
+sudo dhcpt -i eth0 --clear-default-options -o 26
 ```
 *Tip: Run `dhcpt --list-options` to inspect all supported options and codes, or consult the [IANA BOOTP/DHCP Parameters Registry](https://www.iana.org/assignments/bootp-dhcp-parameters).*
 
-### 7. Machine-Readable JSON Output
+### 7. Unicast Offer Delivery (`--no-broadcast`)
+Test if the DHCP server correctly delivers offers via unicast to clients that reject broadcast packets:
+```bash
+sudo dhcpt -i eth0 --no-broadcast
+```
+
+### 8. Machine-Readable JSON Output
 ```bash
 sudo dhcpt -i eth0 --json
 ```

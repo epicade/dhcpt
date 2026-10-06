@@ -1,5 +1,9 @@
 # End-to-End Live Testing Infrastructure
 
+> ⚠️ **AI Authorship Notice & Review Request:**  
+> This documentation was drafted with AI assistance (Google Gemini CLI).  
+> **TODO:** A human engineer should review the testbed architecture, namespace setup, and routing mechanics.
+
 This document describes how the `dhcpt` live network testbed works.
 It covers the architecture, virtual network topology, and how to run tests.
 
@@ -46,11 +50,11 @@ They connect through a Linux bridge (`br-dhcpt`) and a point-to-point VPN tunnel
 │                        │        │                      │  │                        │  │                        │
 │ * veth-client (L2 Eth) │        │ * veth-gw (L2 Eth)   │  │ * veth-server (L2 Eth) │  │ * veth-rogue (L2 Eth)  │
 │   IP: 10.99.0.2/24     │        │   IP: 10.99.0.10/24  │  │   IP: 10.99.0.1/24     │  │   IP: 10.99.0.254/24   │
-│   MAC: Hardware-backed │        │   MAC: Hardware      │  │   IP: 10.77.0.1/32     │  │   MAC: Hardware-backed │
-│                        │        │                      │  │   MAC: Hardware-backed │  │                        │
+│   Type: Virtual Eth    │        │   Type: Virtual Eth  │  │   IP: 10.77.0.1/32     │  │   Type: Virtual Eth    │
+│                        │        │                      │  │   Type: Virtual Eth    │  │                        │
 │ * tun-client (L3 VPN)  │        │ * tun-gw (L3 VPN)    │  │                        │  │ * Rogue Kea Server:    │
 │   IP: 10.88.0.2/30     │        │   IP: 10.88.0.1/30   │  │ * Legitimate Server:   │  │   kea-dhcp4            │
-│   MAC: None (Raw IP)   │        │   MAC: None (Raw IP) │  │   kea-dhcp4            │  │   Subnet: 10.99.0.0/24 │
+│   Type: Point-to-Point │        │   Type: PtP (No MAC) │  │   kea-dhcp4            │  │   Subnet: 10.99.0.0/24 │
 │                        │        │                      │  │   Subnet: 10.99.0.0/24 │  │   (Pool: .220 - .240)  │
 │ (dhcpt CLI Execution)  │        │ * IP Forwarding: ON  │  │   Subnet: 10.50.1.0/24 │  │   Gateway: 10.99.0.254 │
 └───────────▲────────────┘        │   (net.ipv4.ip_      │  │   Subnet: 10.88.0.0/24 │  └────────────────────────┘

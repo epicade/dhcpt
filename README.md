@@ -5,187 +5,246 @@
 [![License](https://img.shields.io/badge/License-GPL_2.0-blue.svg)](https://www.gnu.org/licenses/old-licenses/gpl-2.0.html)
 [![Co-Authored With AI](https://img.shields.io/badge/Co--Authored%20With-Google%20Gemini%20CLI-orange.svg)](#-ai-authorship--transparency-disclosure)
 
-A modern, fast, and comprehensive DHCP troubleshooting, testing, and diagnostic CLI utility written in Python. Built for network engineers, sysadmins, and DevOps teams managing enterprise networks and data centers.
+`dhcpt` is a standalone, lease-safe DHCP testing and diagnostic CLI utility for Linux.
+It crafts raw Layer 2 and Layer 3 DHCP packets using Scapy to troubleshoot local networks, remote relays, and VPN tunnels.
 
----
-
-## 🤖 AI Authorship & Transparency Disclosure
-
-**Full Transparency:** This tool was conceived, architected, and directed by **Emilian Schweikert ([@epicade](https://github.com/epicade))**, and **fully implemented, tested, and documented in collaboration with Gemini CLI (Google Gemini)**.
-
-- **Human Lead & Architect:** Emilian Schweikert ([@epicade](https://github.com/epicade)) — requirements, network topology design, Cisco relay mechanics, and validation.
-- **AI Collaborative Developer:** Google Gemini CLI — implementation of Scapy Layer 2/3 frame construction, Option 82 / RFC 3442 decoding, test suite, and packaging.
-- **Quality Assurance & Verification:** All code and packet crafting routines are human-reviewed, verified against real enterprise topologies, and covered by a 100% passing automated test suite.
-- **Commit History Attribution:** All code commits include explicit `Co-authored-by: Gemini <gemini@local>` attribution footers.
-
----
-
-> 📖 **Full Manual & CLI Specification:**  
-> For the complete manual covering all command-line options, relay mechanics, RFC specifications, and exit codes, run **`man dhcpt`** or read **[`man/dhcpt.1.md`](man/dhcpt.1.md)**.
+> 📖 **Full Manual Page:**  
+> Run **`man dhcpt`** or view **[`man/dhcpt.1.md`](man/dhcpt.1.md)** for exhaustive option documentation.
 
 ---
 
 ## Why `dhcpt`?
 
-Traditional DHCP tools fall short in enterprise environments:
-* **Nagios `check_dhcp`** is written in C, hard to extend, lacks modern Option 82/RFC 3442 decoding, and does not provide JSON output.
-* **Standard OS clients** (`dhclient`, `dhcpcd`, `NetworkManager`) immediately bind and reconfigure the local network interface and routing tables — exactly what you *do not* want when troubleshooting or auditing network segments.
-* **Lease-safe:** Out of the standard four-step DORA exchange (Discover, Offer, Request, Acknowledge), `dhcpt` only sends a Discover and inspects incoming Offers. It never sends a Request or commits an IP lease in your DHCP server database.
+Standard DHCP clients like `dhclient` or `NetworkManager` bind IP addresses to your network card, overwrite default gateways, and replace `/etc/resolv.conf`. Nagios `check_dhcp` lacks modern relay options and provides no structured JSON output.
 
-### Key Highlights
-* **Lease-Safe Testing:** Executes only Discover → Offer (DORA steps 1 & 2); never allocates IP leases.
-* **DHCP Relay & IP-Helper Simulation:** Query remote DHCP servers directly via unicast (`--dhcp-servers` / `-s`) and simulate originating from remote subnets via RFC 3527 Link Selection (`--target-gateway`) and Option 82 (`--circuit-id`, `--remote-id`).
-* **Layer 2 & Layer 3 Support:** Works on physical Ethernet interfaces (`AF_PACKET`) as well as MAC-less Layer 3 interfaces (WireGuard, OpenVPN TUN via `AF_INET`).
-* **Rogue DHCP Detection (`--all`):** Listens across the full timeout window to catch rogue or duplicate servers.
-* **Comprehensive RFC Option Decoder:** Decodes network parameters, Lease times, Option 82, and RFC 3442 / Option 121 / Option 249 Classless Static Routes.
-* **AI Agent Integration:** Built-in skill installer (`--install-skill`) for Gemini CLI, Claude Code, and Mistral Vibe.
-* **Machine-Readable:** Structured, emoji-free terminal output and formatted JSON (`--json`) for automation.
+### How `dhcpt` Solves This
+
+* **Lease-Safe:** Executes only the first two steps of the standard **DORA cycle** (Discover -> Offer). It never sends a DHCP Request and never consumes an IP lease.
+* **Zero Network Changes:** Inspects DHCP offers without modifying your IP address, default gateway, or routing table.
+* **Relay & IP-Helper Simulation:** Unicasts queries (`-s`) with Option 82 Sub-option 1 (Circuit ID), Sub-option 2 (Remote ID), and Sub-option 5 (RFC 3527 Link Selection).
+* **Layer 2 & Layer 3 Support:** Runs on Ethernet adapters and point-to-point VPN tunnels (WireGuard `wg0`, OpenVPN `tun0`).
+* **Catches Rogue Servers:** Listens across the full timeout window (`--all`) to capture all answering servers on the broadcast domain.
+* **Decodes Advanced Options:** Formats Option 82, RFC 3442 Option 121 Classless Static Routes, and RFC 3397 Option 119 Domain Search lists.
+* **Monitoring & Scripting Ready:** Clean text tables without emojis and machine-readable JSON output (`--json`).
 
 ---
 
-## Installation
+## Example Output
 
-### Prerequisites
-`dhcpt` requires Python 3.9+ and Scapy. Because crafting raw network packets requires elevated privileges, run `dhcpt` with `sudo`.
+Running a simple check against a DHCP server produces a clean, structured report:
 
-```bash
-# On Debian / Ubuntu:
-sudo apt install python3-scapy
+```text
+$ sudo dhcpt -i eth0 -s 10.99.0.1
+================================================================================
+DHCP OFFER #1 (Server: 10.99.0.1)
+================================================================================
+Network Configuration:
+  Offered IP (yiaddr)     : 10.99.0.100
+  Subnet Mask (Opt 1)     : 255.255.255.0 (/24)
+  Default Gateway (Opt 3) : 10.99.0.1
+  DNS Servers (Opt 6)     : 10.99.0.1
+  Domain Name (Opt 15)    : example.com
 
-# On RHEL / Rocky / AlmaLinux / Oracle Linux:
-sudo dnf install python3-scapy
-```
+Classless Static Routes (RFC 3442 / VPN & Enterprise):
+  * 10.0.0.0/8 via 10.99.0.1
+  * 192.168.50.0/24 via 10.99.0.254
 
-### Install via pipx / Makefile
-Installing globally with `pipx` ensures `dhcpt` is placed in `sudo`'s default `secure_path` (`/usr/local/bin`) and automatically provisions the system manpage and shell completions:
-
-```bash
-# Recommended: Global installation via pipx
-sudo pipx install --global git+https://github.com/epicade/dhcpt.git
-
-# Or install globally from local source:
-make install
-
-# Alternatively, standard system-wide pip:
-sudo pip install git+https://github.com/epicade/dhcpt.git
-```
-
-### UNIX Manual Page
-When installed, the offline manual page is immediately available:
-```bash
-man dhcpt
+Lease Information:
+  Lease Time (Opt 51)     : 4000s (1h 6m 40s)
+  DHCP Server ID (Opt 54) : 10.99.0.1
+================================================================================
 ```
 
 ---
 
-## Quickstart & Common Recipes
+## Quickstart
 
-### 1. Standard Broadcast Check
-Test whether any local DHCP server responds on an interface:
+### 1. Test Local Broadcast Network
+
+Send a broadcast Discover on a local network interface:
+
 ```bash
 sudo dhcpt -i eth0
-# or positionally:
+# or positional:
 sudo dhcpt eth0
 ```
 
-### 2. Test Remote DHCP Servers (Relay / IP-Helper Simulation)
-Query one or multiple remote servers directly via unicast, simulating a relay agent (e.g. Cisco *ip helper-address*, Juniper *forwarding-options dhcp-relay*):
+### 2. Simulate Router Relay / IP-Helper (`-s`, `--target-gateway`)
+
+Simulate a router relay agent forwarding traffic from a remote VLAN.
+Pass the server IP and the target subnet gateway defined in the DHCP server pool:
+
 ```bash
-# Single server: simulate originating from VLAN 100 via RFC 3527 Link Selection:
-sudo dhcpt -i eth0 --dhcp-servers 192.0.2.1 --target-gateway 10.50.1.1 --circuit-id Vlan100
-
-# Multiple redundant servers simultaneously:
-sudo dhcpt -i eth0 --dhcp-servers 10.1.1.1,10.1.1.2,10.1.1.3 --target-gateway 10.50.1.1
+sudo dhcpt -i eth0 -s 192.0.2.1 --target-gateway 10.50.1.1 --circuit-id Vlan100 --remote-id sw-core-01
 ```
-*Deep Dive:* For full packet flow diagrams and vendor directives (e.g. Cisco, Juniper, Arista, Linux), see the [DHCP Relay Architecture & RFC 3527 Guide](docs/relay-mechanics.md).
 
-### 3. Detect Rogue DHCP Servers
-Listen for the full timeout duration to capture all answering servers on the broadcast domain:
+*Deep Dive:* See the [DHCP Relay Architecture Guide](docs/relay-mechanics.md) for network diagrams.
+
+### 3. Detect Rogue DHCP Servers (`--all`)
+
+Listen for the full timeout duration to capture all answering servers on the segment:
+
 ```bash
 sudo dhcpt -i eth0 --all --timeout 5
 ```
 
-### 4. Layer 3 WireGuard / VPN Tunnel Testing
-On Layer 3 interfaces without MAC addresses (WireGuard `wg0`, TUN `tun0`), `dhcpt` automatically uses raw IP sockets (`AF_INET`). Because Layer 3 interfaces do not support Layer 2 broadcast, specify target DHCP server(s) via `--dhcp-servers` and ensure the target server IP is routed across the tunnel in the Linux routing table:
-```bash
-# Verify kernel route points to the tunnel interface:
-ip route get 10.1.1.1
+### 4. Output Formatted JSON (`--json`)
 
-# Run dhcpt across the routed Layer 3 tunnel:
-sudo dhcpt -i wg0 --dhcp-servers 10.1.1.1 --target-gateway 10.50.1.1
-```
+Generate machine-readable JSON for monitoring checks and automation scripts:
 
-### 5. Request Custom DHCP Options (`-o`)
-Default requests include Subnet Mask, Gateway, DNS, Domain, Static Routes, NTP, Vendor Info, and WPAD. Request custom option codes or names:
-```bash
-sudo dhcpt -i eth0 -o 12,26,66,67
-# or by name:
-sudo dhcpt -i eth0 -o hostname,interface_mtu,tftp_server_name
-```
-*Run `dhcpt --list-options` to inspect supported RFC options, or consult the [IANA BOOTP/DHCP Parameters Registry](https://www.iana.org/assignments/bootp-dhcp-parameters).*
-
-### 6. JSON Output for Automation & Monitoring
 ```bash
 sudo dhcpt -i eth0 --json
 ```
 
 ---
 
-## Shell Completions (Zsh & Bash)
+## Quick Reference / Cheat Sheet
 
-When installed globally via `sudo pipx install --global`, completions are automatically provisioned in system directories. You can also generate them on demand:
+| Option | Description |
+| :--- | :--- |
+| **`-i, --interface <dev>`** | Target network interface (e.g. `eth0`, `ens3`, `wg0`). Also accepted as positional argument. |
+| **`-s, --dhcp-servers <ips>`** | Comma-separated remote DHCP server IPs to query via unicast (e.g. `-s 10.1.1.1,10.1.1.2`). |
+| **`--target-gateway <ip>`** | Target subnet gateway IP for RFC 3527 Link Selection (simulates remote VLAN pool). |
+| **`--circuit-id <id>`** | Inject Option 82 Sub-option 1 Agent Circuit ID (e.g. `Vlan100`, `ge-0/0/1`). |
+| **`--remote-id <id>`** | Inject Option 82 Sub-option 2 Agent Remote ID (e.g. switch hostname or MAC). |
+| **`--giaddr <ip>`** | Override BOOTP relay agent gateway IP (defaults to local outgoing interface IP). |
+| **`-o, --request-options <opts>`** | Append option codes or names to Parameter Request List (e.g. `-o 26,67` or `-o interface_mtu`). |
+| **`--clear-default-options`** | Request ONLY options explicitly passed with `-o` (simulates minimal IoT/PXE ROMs). |
+| **`--no-broadcast`** | Request unicast offer delivery without setting the BOOTP broadcast flag. |
+| **`-m, --mac <mac>`** | Spoof client hardware MAC address to test static reservations (e.g. `-m 00:11:22:33:44:55`). |
+| **`-a, --all`** | Listen for the full timeout duration to detect all answering (and rogue) servers. |
+| **`-t, --timeout <sec>`** | Timeout in seconds to wait for offers (default: `5.0`). |
+| **`-j, --json`** | Format results as structured JSON. |
+| **`-v, -vv, -d`** | Verbose / debug logging (`*` state, `>` send, `<` recv). |
+| **`-l, --list-interfaces`** | List available network interfaces with IP, MAC, carrier, and operstate. |
+| **`--list-options`** | List supported DHCP option codes, names, and formats. |
+
+---
+
+## Installation
+
+`dhcpt` requires Linux, Python 3.9+, and Scapy.
+Because raw network sockets require `CAP_NET_RAW`, run `dhcpt` with `sudo`.
+
+### 1. Prerequisites (Install Scapy)
 
 ```bash
-# System-wide (recommended, matching global installation):
+# Debian / Ubuntu:
+sudo apt install python3-scapy
+
+# RHEL / Rocky / AlmaLinux / Oracle Linux:
+sudo dnf install python3-scapy
+```
+
+### 2. Installation Options
+
+#### Option A: Latest Stable Release (Recommended for Production)
+
+Install a verified release tag. Check [GitHub Releases](https://github.com/epicade/dhcpt/releases) for available versions:
+
+```bash
+# Install a specific release tag (replace <tag> with your desired version, e.g. v0.1.1):
+sudo pipx install --global git+https://github.com/epicade/dhcpt.git@<tag>
+
+# Or install the latest release automatically in a single command:
+LATEST_TAG=$(git ls-remote --tags --refs https://github.com/epicade/dhcpt.git | tail -n1 | cut -d/ -f3)
+sudo pipx install --global "git+https://github.com/epicade/dhcpt.git@${LATEST_TAG}"
+```
+
+#### Option B: Development Version (Bleeding-Edge `main` Branch)
+
+Install the latest commit directly from the development branch:
+
+```bash
+sudo pipx install --global git+https://github.com/epicade/dhcpt.git
+```
+
+#### Option C: From Local Source
+
+```bash
+git clone https://github.com/epicade/dhcpt.git
+cd dhcpt
+sudo make install
+```
+
+#### Option D: Direct Python Execution (No Binary Installation)
+
+Run `dhcpt` directly from source or within container environments:
+
+```bash
+sudo python3 -m dhcpt -i eth0
+```
+
+---
+
+## Exit Codes
+
+`dhcpt` returns standard UNIX exit codes suitable for monitoring checks (Nagios, Icinga, Zabbix):
+
+| Exit Code | Meaning | Description |
+| :--- | :--- | :--- |
+| **`0`** | **Success** | All queried DHCP servers replied, or local offer was captured. |
+| **`1`** | **Timeout / Failure** | Zero DHCP offers received within timeout, or permission denied. |
+| **`2`** | **Syntax / Usage Error** | Missing interface, invalid IP/MAC format, or unknown option. |
+| **`3`** | **Partial Response** | Multi-server query (`-s`) where some servers answered but at least one timed out. |
+
+---
+
+## Shell Completions & AI Agent Integration
+
+### Shell Completions (Bash & Zsh)
+
+Global installations automatically copy completions to system directories.
+You can also generate completions manually:
+
+```bash
+# System-wide installation:
 sudo dhcpt --completion zsh | sudo tee /usr/local/share/zsh/site-functions/_dhcpt >/dev/null
 sudo dhcpt --completion bash | sudo tee /usr/local/share/bash-completion/completions/dhcpt >/dev/null
-
-# Or user-local:
-mkdir -p ~/.local/share/zsh/site-functions ~/.local/share/bash-completion/completions
-dhcpt --completion zsh > ~/.local/share/zsh/site-functions/_dhcpt
-dhcpt --completion bash > ~/.local/share/bash-completion/completions/dhcpt
 ```
 
 *Dynamic DIM Integration:* If `ndcli` ([DIM - DNS and IP Management](https://github.com/ionos-core/dim)) is installed, completions dynamically autocomplete DHCP server hostnames (configured via `$DHCPT_SERVER_PATTERNS`), VLAN pools, and subnets. See [`man/dhcpt.1.md`](man/dhcpt.1.md#environment) for configuration details.
 
----
+### AI Agent Skill Integration
 
-## AI Agent Integration
-
-`dhcpt` includes a built-in skill installer to teach conversational CLI agents how to diagnose DHCP:
+`dhcpt` provides a built-in skill installer for terminal coding assistants:
 
 ```bash
-# Auto-detect installed agents (Gemini CLI, Claude Code, Mistral Vibe) and install:
+# Auto-detect installed assistants (Gemini CLI, Claude Code, Mistral Vibe):
 dhcpt --install-skill
 
-# Or target a specific assistant:
+# Or install for a specific assistant:
 dhcpt --install-skill gemini
 ```
 
 ---
 
-## Troubleshooting & Diagnostics
+## Troubleshooting
 
-If `dhcpt` times out without receiving DHCP Offers, use these diagnostics:
+### 1. Check UDP Port 67 Reachability with Netcat
 
-1. **Check UDP Port 67 Reachability with Netcat (`nc`):**
-   When querying remote servers across VPNs or firewalls, verify if UDP port 67 is accessible:
-   ```bash
-   nc -z -v -u -w 2 <server_ip> 67
-   ```
-   *Flags:* `-u` (UDP mode), `-z` (zero-I/O port scan), `-v` (verbose), `-w 2` (2s timeout). Note that standard Netcat does not support long options.
+Before debugging DHCP configurations across VPN tunnels or firewalls, test reachability on UDP port 67:
 
-   If Netcat succeeds (`Connection to <server_ip> 67 port [udp/bootps] succeeded!`) but `dhcpt` times out, UDP traffic is permitted. The server may be dropping the query due to pool exhaustion, unconfigured subnets, or Option 82 policies.
+```bash
+nc -z -v -u -w 2 <server_ip> 67
+```
 
-2. **Run in Detailed Debug Mode (`-vv`):**
-   Inspect outgoing and incoming packet layers and Option 82 payloads:
-   ```bash
-   sudo dhcpt -i eth0 -s <server_ip> -vv
-   ```
+*Options:* `-u` (UDP mode), `-z` (port scan), `-v` (verbose), `-w 2` (timeout in seconds).
+
+If Netcat succeeds but `dhcpt` times out, UDP traffic is permitted.
+The server may be dropping queries due to pool exhaustion, unconfigured subnets, or Option 82 policies.
+
+### 2. Inspect Detailed Packet Trees (`-vv`)
+
+Inspect outgoing Discover frames and incoming server Offers in detail:
+
+```bash
+sudo dhcpt -i eth0 -s <server_ip> -vv
+```
 
 ---
 
-## Development
+## Development & Contributing
 
 ```bash
 # 1. Clone repository:
@@ -193,27 +252,38 @@ git clone https://github.com/epicade/dhcpt.git
 cd dhcpt
 
 # 2. Setup development environment:
-# Installs system tools (Kea, Jq, ShellCheck, Pandoc, Zsh), Python dev dependencies,
-# and links /usr/local/bin/dhcpt directly to src/dhcpt/cli.py.
-# Any code edit you save in src/ is immediately live in 'dhcpt' and 'sudo dhcpt'!
+# Installs system tools (Kea, Jq, ShellCheck, Pandoc, Zsh) and links /usr/local/bin/dhcpt
+# directly to src/dhcpt/cli.py. Code edits in src/ are immediately live!
 make install-dev
 
-# 3. Run all linters (Ruff, ShellCheck, Manpage freshness) and unit tests:
+# 3. Run all linters and unit tests:
 make check
 
-# 4. Recompile UNIX manpage from Markdown source:
+# 4. Recompile manual page:
 make man
 
-# 5. Start live isolated Kea DHCP testbed and run E2E network test suites:
+# 5. Run live network testbed in isolated namespaces:
 make testbed-start
 make e2e
 make testbed-stop
 ```
 
-*Testing Guide:* For details on network namespace topology, ISC Kea daemon policies, and adding test suites, see the [End-to-End Live Testing Infrastructure Guide](docs/testing-infrastruktur.md).
+For full testbed architecture details, see the [Testing Infrastructure Guide](docs/testing-infrastruktur.md).
+
+---
+
+## 🤖 AI Authorship & Transparency Disclosure
+
+This tool was designed by **Emilian Schweikert ([@epicade](https://github.com/epicade))**.
+It was implemented, tested, and documented in collaboration with **Gemini CLI (Google Gemini)**.
+
+* **Human Lead:** Architecture, network design, Cisco relay mechanics, and validation.
+* **AI Developer:** Packet crafting routines, option decoders, test suites, and packaging.
+* **Quality Assurance:** All code is human-reviewed and verified against live ISC Kea servers.
+* **Commit History:** All AI-assisted commits include explicit co-author attribution.
 
 ---
 
 ## License
 
-This project is licensed under the **GNU General Public License v2.0 or later (GPL-2.0-or-later)** to remain fully compatible with Scapy. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the **GNU General Public License v2.0 or later (GPL-2.0-or-later)** to remain compatible with Scapy. See the [LICENSE](LICENSE) file for details.
