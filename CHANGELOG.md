@@ -25,6 +25,8 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 * Add UNIX manpage dhcpt(1) with shared-data installation for pipx and Linux package managers
 
 ### Changes
+* Document installation workflows for latest stable release tags (with automated tag discovery) vs bleeding-edge development (main branch)
+* Simplify documentation and manpage into clear, jargon-free plain language with short sentences
 * Document Netcat UDP port 67 diagnostic reachability verification workflow in manpage, skill, and README
 * Format verbose and debug output in curl style using unified state, send, and receive indicators
 * Redesign failure output to emit concise single-line error messages to stderr without verbose checklist

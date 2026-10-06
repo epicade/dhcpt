@@ -16,27 +16,23 @@ dhcpt - comprehensive DHCP tester, troubleshooting, and diagnostic CLI utility
 
 # DESCRIPTION
 
-**dhcpt** is a Layer 2 and Layer 3 DHCP testing, diagnostic, and troubleshooting tool
-designed for Linux network engineers and system administrators. It crafts RFC-compliant
-DHCP Discover packets, listens for DHCP Offers, and thoroughly decodes network parameters,
-lease lifetimes, Option 82 Relay Agent parameters, and RFC 3442 Classless Static Routes.
+**dhcpt** is a Layer 2 and Layer 3 DHCP testing and diagnostic tool for Linux.
+It crafts raw DHCP Discover packets and inspects incoming DHCP Offers.
+The tool decodes network parameters, lease times, Option 82 fields, and Option 121 static routes.
 
-**dhcpt** is strictly **lease-safe**: out of the standard four-step DORA exchange
-(Discover, Offer, Request, Acknowledge), it only sends a DHCP Discover and inspects
-incoming DHCP Offers, but never sends a DHCP Request or allocates an IP address.
+**dhcpt** is strictly **lease-safe**:
+Out of the four-step DORA exchange (Discover, Offer, Request, Acknowledge), it only executes the first two steps.
+It never sends a DHCP Request or commits an IP address lease.
 
 On Layer 2 Ethernet interfaces, **dhcpt** uses raw packet sockets (**AF_PACKET**).
-On Layer 3 interfaces without hardware MAC addresses (e.g., WireGuard **wg0**, OpenVPN **tun0**),
-**dhcpt** automatically switches to raw IP sockets (**AF_INET**).
-Both modes require superuser privileges (**sudo**) because opening raw network sockets
-in the Linux kernel requires the **CAP_NET_RAW** capability.
+On Layer 3 interfaces without MAC addresses (WireGuard **wg0**, OpenVPN **tun0**), it uses raw IP sockets (**AF_INET**).
+Both modes require superuser privileges (**sudo**) for raw socket access.
 
-On Layer 3 interfaces, Layer 2 broadcast is not supported; dedicated DHCP servers
-must be specified via **--dhcp-servers** (or **-s**). Because packet transmission
-on Layer 3 relies on kernel network routing, the Linux routing table must direct
-traffic for the target DHCP server IP(s) out through the specified Layer 3 interface.
-**dhcpt** automatically checks kernel route egress and issues an operational warning
-if a target server is routed via a different interface.
+On Layer 3 interfaces, broadcast packets are not supported.
+You must specify target DHCP servers via **--dhcp-servers** (or **-s**).
+Packet transmission on Layer 3 relies on Linux kernel routing.
+Your routing table must direct traffic for the target server through the tunnel interface.
+**dhcpt** checks kernel routing automatically and issues a warning if traffic would leave through another card.
 
 # OPTIONS
 
@@ -50,36 +46,34 @@ if a target server is routed via a different interface.
 ## DHCP Relay & IP-Helper Simulation
 
 **--dhcp-servers** *DHCP_SERVERS*, **--dhcp-server** *DHCP_SERVERS*, **-s** *DHCP_SERVERS*
-:   Target one or more remote DHCP servers directly via unicast (comma-separated, e.g. `--dhcp-servers 10.1.1.1,10.1.1.2` or `-s 10.1.1.1`).
-    Corresponds to the relay target configured on routers and switches (e.g. Cisco *ip helper-address*).
-    When querying remote servers, **dhcpt** automatically populates the BOOTP relay agent gateway (*giaddr*)
-    with the local interface IP address so the server routes the reply directly back to the tester.
-    Use this option to verify whether remote central DHCP servers are reachable and listening on UDP port 67 across routed networks.
+:   Target one or more remote DHCP servers directly via unicast (comma-separated, e.g. `-s 10.1.1.1,10.1.1.2`).
+    Corresponds to the relay target on routers (e.g. Cisco *ip helper-address*).
+    When querying remote servers, **dhcpt** sets the BOOTP gateway field (*giaddr*) to the local interface IP.
+    This ensures the server routes the reply directly back to your machine.
     Aliases: **--dhcp-server**, **-s**.
 
 **--target-gateway** *GATEWAY_IP*, **--relay-subnet** *GATEWAY_IP*
-:   Simulate originating from a remote subnet by specifying the gateway IP defined for that pool in the DHCP server configuration (RFC 3527 Link Selection, Option 82 Sub-option 5).
-    Instructs the DHCP server which address pool to allocate from, while **dhcpt** sets the BOOTP relay gateway (*giaddr*)
-    to the local interface IP address so the DHCP Offer reply is routed back to the tester.
-    Use this option to remotely verify whether a central DHCP server has an active, non-exhausted address pool for a specific VLAN or subnet without having physical access to that network segment.
-    Typically used in combination with **--dhcp-servers** (or **-s**).
+:   Simulate a remote subnet using RFC 3527 Link Selection (Option 82 Sub-option 5).
+    Specify the gateway IP defined for that pool in the DHCP server configuration.
+    This instructs the server which address pool to allocate from.
+    Meanwhile, **dhcpt** keeps *giaddr* set to your local IP so the reply returns to you.
+    Use this option to test VLAN-specific or subnet-specific DHCP allocation rules without physical access to that network segment.
+    Aliases: **--relay-subnet**.
 
 **--circuit-id** *CIRCUIT_ID*
-:   Simulate the Option 82 Agent Circuit ID sub-option per RFC 3046 (e.g. `Vlan100`, `ge-0/0/1`).
-    Use this option to verify VLAN-specific or port-specific DHCP allocation policies. Many enterprise DHCP servers (such as Kea or ISC DHCP) use the Circuit ID to assign specific IP ranges, boot files, or option sets to particular VLANs. If clients on a specific VLAN fail to obtain an IP or receive incorrect parameters, pass their VLAN tag (e.g. `--circuit-id Vlan100`).
-    Typically used in combination with **--dhcp-servers** and **--target-gateway**.
+:   Inject Option 82 Sub-option 1 (Agent Circuit ID) per RFC 3046 (e.g. `Vlan100`, `ge-0/0/1`).
+    Represents the incoming VLAN name or switch port.
+    Use this option to test VLAN-specific or port-specific DHCP allocation rules.
 
 **--remote-id** *REMOTE_ID*
-:   Simulate the Option 82 Agent Remote ID sub-option per RFC 3046 (e.g. switch hostname, MAC address, or DUID).
-    Use this option to test switch-specific access control lists or location-based allocation policies. In secure enterprise networks, DHCP servers may reject requests or allocate distinct pools based on which physical switch forwarded the request.
-    Typically used in combination with **--dhcp-servers** and **--target-gateway**.
+:   Inject Option 82 Sub-option 2 (Agent Remote ID) per RFC 3046 (e.g. switch hostname or MAC address).
+    Represents the physical switch identity.
+    Use this option to test switch-specific access policies or server client-classes.
 
 **--giaddr** *GIADDR*
 :   Explicitly override the BOOTP Relay Agent Gateway IP address (*giaddr*).
-    By default, **dhcpt** automatically populates *giaddr* with the IP address of the local interface used to transmit the request,
-    ensuring the DHCP server routes unicast Offer replies back to the tester.
-    Use this option to diagnose legacy DHCP servers that lack RFC 3527 Link Selection support (which require *giaddr* to match the subnet gateway directly), or when testing multi-homed routers and VRF routing topologies.
-    Typically used in combination with **--dhcp-servers** (or **-s**).
+    By default, **dhcpt** sets *giaddr* to the local interface IP address.
+    Use this option to test legacy servers that do not support RFC 3527 Link Selection.
 
 ## Protocol & DHCP Packet Options
 
