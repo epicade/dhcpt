@@ -56,12 +56,15 @@ sudo apt install python3-scapy
 sudo dnf install python3-scapy
 ```
 
-### Install via pipx / pip
-Installing globally with `pipx` ensures `dhcpt` is placed in `sudo`'s default `secure_path` (`/usr/local/bin`) and automatically provisions the system manpage:
+### Install via pipx / Makefile
+Installing globally with `pipx` ensures `dhcpt` is placed in `sudo`'s default `secure_path` (`/usr/local/bin`) and automatically provisions the system manpage and shell completions:
 
 ```bash
-# Recommended: Global installation accessible in sudo secure_path
+# Recommended: Global installation via pipx
 sudo pipx install --global git+https://github.com/epicade/dhcpt.git
+
+# Or install globally from local source:
+make install
 
 # Alternatively, standard system-wide pip:
 sudo pip install git+https://github.com/epicade/dhcpt.git
@@ -103,8 +106,12 @@ sudo dhcpt -i eth0 --all --timeout 5
 ```
 
 ### 4. Layer 3 WireGuard / VPN Tunnel Testing
-On Layer 3 interfaces without MAC addresses, `dhcpt` automatically uses raw IP sockets:
+On Layer 3 interfaces without MAC addresses (WireGuard `wg0`, TUN `tun0`), `dhcpt` automatically uses raw IP sockets (`AF_INET`). Because Layer 3 interfaces do not support Layer 2 broadcast, specify target DHCP server(s) via `--dhcp-servers` and ensure the target server IP is routed across the tunnel in the Linux routing table:
 ```bash
+# Verify kernel route points to the tunnel interface:
+ip route get 10.1.1.1
+
+# Run dhcpt across the routed Layer 3 tunnel:
 sudo dhcpt -i wg0 --dhcp-servers 10.1.1.1 --target-gateway 10.50.1.1
 ```
 
@@ -157,20 +164,53 @@ dhcpt --install-skill gemini
 
 ---
 
+## Troubleshooting & Diagnostics
+
+If `dhcpt` times out without receiving DHCP Offers, use these diagnostics:
+
+1. **Check UDP Port 67 Reachability with Netcat (`nc`):**
+   When querying remote servers across VPNs or firewalls, verify if UDP port 67 is accessible:
+   ```bash
+   nc -z -v -u -w 2 <server_ip> 67
+   ```
+   *Flags:* `-u` (UDP mode), `-z` (zero-I/O port scan), `-v` (verbose), `-w 2` (2s timeout). Note that standard Netcat does not support long options.
+
+   If Netcat succeeds (`Connection to <server_ip> 67 port [udp/bootps] succeeded!`) but `dhcpt` times out, UDP traffic is permitted. The server may be dropping the query due to pool exhaustion, unconfigured subnets, or Option 82 policies.
+
+2. **Run in Detailed Debug Mode (`-vv`):**
+   Inspect outgoing and incoming packet layers and Option 82 payloads:
+   ```bash
+   sudo dhcpt -i eth0 -s <server_ip> -vv
+   ```
+
+---
+
 ## Development
 
 ```bash
-# Clone and install in editable mode:
+# 1. Clone repository:
 git clone https://github.com/epicade/dhcpt.git
 cd dhcpt
-python -m pip install -e .[dev]
 
-# Run all linters (Ruff, Pandoc manpage freshness, ShellCheck) and pytest:
+# 2. Setup development environment:
+# Installs system tools (Kea, Jq, ShellCheck, Pandoc, Zsh), Python dev dependencies,
+# and links /usr/local/bin/dhcpt directly to src/dhcpt/cli.py.
+# Any code edit you save in src/ is immediately live in 'dhcpt' and 'sudo dhcpt'!
+make install-dev
+
+# 3. Run all linters (Ruff, ShellCheck, Manpage freshness) and unit tests:
 make check
 
-# Recompile UNIX manpage from Markdown source:
+# 4. Recompile UNIX manpage from Markdown source:
 make man
+
+# 5. Start live isolated Kea DHCP testbed and run E2E network test suites:
+make testbed-start
+make e2e
+make testbed-stop
 ```
+
+*Testing Guide:* For details on network namespace topology, ISC Kea daemon policies, and adding test suites, see the [End-to-End Live Testing Infrastructure Guide](docs/testing-infrastruktur.md).
 
 ---
 

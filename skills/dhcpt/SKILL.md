@@ -86,7 +86,20 @@ sudo dhcpt -i eth0 --dhcp-servers 10.1.1.1,10.1.1.2,10.1.1.3,10.1.1.4 --target-g
 * **Why `--target-gateway` (RFC 3527 Link Selection)?**
   RFC 2131 dictates that DHCP servers reply to `giaddr`. Setting `--target-gateway <gateway_ip>` (or alias `--relay-subnet`) tells the DHCP server which address pool to allocate from — specifically, the gateway IP configured as the identifier for that VLAN in the DHCP server's subnet declaration. Meanwhile, `dhcpt` sets `giaddr` to your local machine IP so the DHCP server routes the reply directly back to you across routed networks.
 
-### 5. Request Custom DHCP Options (`-o`)
+### 5. Fast-Path: Constructing Remote Relay Queries
+When testing a remote subnet or VLAN without manually looking up the network device name:
+1. **Identify the DHCP Server IP & Target Subnet Gateway:**
+   Determine the DHCP server IP (e.g. `192.0.2.1` or enterprise Anycast IP) and the default gateway of the target subnet (e.g. `10.50.1.1`).
+2. **Resolve the Outgoing Interface Automatically:**
+   ```bash
+   IFACE=$(ip route get <SERVER_IP> | grep -oP 'dev \K\S+')
+   ```
+3. **Execute the Relay Query Immediately:**
+   ```bash
+   sudo dhcpt -i "$IFACE" --dhcp-servers <SERVER_IP> --target-gateway <GATEWAY_IP> [-m <MAC>]
+   ```
+
+### 6. Request Custom DHCP Options (`-o`)
 Standard options (Subnet Mask, Router, DNS, NTP, Domain, Classless Routes, WPAD) are included by default. To request additional options (e.g. for PXE netboot or VoIP):
 ```bash
 sudo dhcpt -i eth0 -o 12,26,66,67
@@ -95,7 +108,7 @@ sudo dhcpt -i eth0 -o hostname,tftp_server_name,interface_mtu
 ```
 *Tip: Run `dhcpt --list-options` to inspect all supported options and codes, or consult the [IANA BOOTP/DHCP Parameters Registry](https://www.iana.org/assignments/bootp-dhcp-parameters).*
 
-### 6. Machine-Readable JSON Output
+### 7. Machine-Readable JSON Output
 ```bash
 sudo dhcpt -i eth0 --json
 ```
@@ -111,14 +124,23 @@ sudo dhcpt -i eth0 --json
 
 ---
 
-## Interpreting Output & Troubleshooting Checklist
+## Interpreting Output & Troubleshooting
 
-### If No Offer is Received (`[FAILURE]`):
+### If No Offer is Received:
 1. **Link State:** Check whether `operstate` is `up` and `carrier` is `1`. If down, run `sudo ip link set <iface> up`.
-2. **VLAN Tagging:** Verify if the client port is on the correct access VLAN or trunk PVID.
-3. **DHCP Relay Configuration:** On the upstream switch, check if `ip helper-address <server>` is configured on the SVI.
-4. **Firewall:** Verify host and network firewalls do not drop UDP ports 67 and 68.
-5. **Pool Exhaustion:** Check DHCP server logs to see if the address pool has available leases.
+2. **UDP Port 67 Reachability (Netcat):** When testing remote servers (e.g. over VPN or routed networks), verify if UDP port 67 is accessible:
+   ```bash
+   # -u: UDP mode, -z: zero-I/O scanning, -v: verbose, -w 2: 2-second timeout
+   nc -z -v -u -w 2 <server_ip> 67
+   ```
+   *(Note: Netcat on Linux/OpenBSD uses single-letter options; long options like `--udp` are not supported).*
+3. **Pool Exhaustion & Server Rejection:** If Netcat succeeds (`Connection to <server_ip> 67 port [udp/bootps] succeeded!`) but `dhcpt` times out:
+   * Is the address pool exhausted? Check server logs.
+   * Does a pool exist for `--target-gateway <GW>` on the server?
+   * Does the server require specific Option 82 attributes (`--circuit-id` or `--remote-id`)?
+4. **VLAN Tagging:** Verify if the client port is on the correct access VLAN or trunk PVID.
+5. **DHCP Relay Configuration:** On the upstream switch, check if `ip helper-address <server>` is configured on the SVI.
+6. **Firewall:** Verify host and network firewalls permit incoming UDP port 67 and 68.
 
 ### If an Offer is Received:
 * **`yiaddr` (Offered IP):** The IP address offered by the server.

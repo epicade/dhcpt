@@ -128,6 +128,9 @@ Standard DHCP test tools rely exclusively on Layer 2 Ethernet raw sockets (`AF_P
 * Transmits pure Layer 3 IP/UDP packets directly over the point-to-point link.
 * Decodes incoming replies without expecting Layer 2 framing.
 
+### Layer 3 Egress Routing Rationale:
+Because pure Layer 3 interfaces lack Layer 2 broadcast framing, standard broadcast DHCP Discovers cannot be transmitted across them. Always target dedicated server IPs via `--dhcp-servers`. Furthermore, because raw IP sockets (`AF_INET`) rely on the Linux kernel's Forwarding Information Base (FIB) for packet egress, ensure your system routing table directs traffic for the DHCP server IP through the tunnel interface (e.g. `ip route add <server_ip> dev wg0`). `dhcpt` automatically runs an FIB route egress check (`ip route get <server_ip>`) and emits an operational warning if kernel routing would send packets out a different network device.
+
 *Privilege Requirement:* Both Layer 2 (`AF_PACKET`) and Layer 3 (`AF_INET`) raw socket operations require superuser privileges (`sudo`) or the `CAP_NET_RAW` capability because opening raw network sockets in the Linux kernel is restricted to privileged processes.
 
 ```bash
