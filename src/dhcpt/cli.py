@@ -45,7 +45,7 @@ Features:
 - Detailed debug logging for Layer 2/3 frame assembly and option decoding.
 - Structured text and JSON output formats without emoji decorations.
 - Built-in shell completion generation for Zsh and Bash (--completion {zsh,bash}).
-- Diagnostic troubleshooting hints if no response is received.
+- High-signal error and timeout reporting on stderr adhering to UNIX CLI conventions.
 """
 
 from __future__ import annotations
@@ -59,6 +59,7 @@ import re
 import shutil
 import socket
 import struct
+import subprocess
 import sys
 import time
 from dataclasses import asdict, dataclass, field
@@ -68,7 +69,17 @@ from typing import Any
 try:
     from dhcpt import __version__
 except ImportError:
-    __version__ = "0.1.0"
+    try:
+        from importlib.metadata import PackageNotFoundError, version
+
+        __version__ = version("dhcpt")
+    except (PackageNotFoundError, ImportError):
+        pkg_root = Path(__file__).resolve().parent.parent
+        if (pkg_root / "dhcpt" / "__init__.py").is_file() and str(pkg_root) not in sys.path:
+            sys.path.insert(0, str(pkg_root))
+            from dhcpt import __version__
+        else:
+            __version__ = "unknown"
 
 # Scapy is required for Layer 2 and Layer 3 packet crafting and sniffing
 try:
@@ -226,16 +237,19 @@ class DHCPOffer:
 
 
 class DhcptLogFormatter(logging.Formatter):
-    """Custom log formatter supporting layered tree and categorized diagnostic messages."""
+    """Custom log formatter adhering to curl-style output (* state, > send, < recv)."""
 
     def format(self, record: logging.LogRecord) -> str:
         msg = record.getMessage()
-        if record.levelno == logging.DEBUG:
+        if record.levelno in (logging.INFO, logging.DEBUG):
             if msg.startswith(("*", ">", "<", " ")):
                 return msg
             return f"* {msg}"
-        lvl = "WARN" if record.levelname == "WARNING" else record.levelname
-        return f"[{lvl}] {msg}"
+        if record.levelno == logging.WARNING:
+            return f"* [WARN] {msg}"
+        if record.levelno >= logging.ERROR:
+            return f"dhcpt: error: {msg}"
+        return msg
 
 
 def setup_logging(debug: bool = False, verbose: int | bool = 0) -> None:
@@ -257,6 +271,12 @@ def setup_logging(debug: bool = False, verbose: int | bool = 0) -> None:
     LOGGER.setLevel(level)
     LOGGER.handlers.clear()
     LOGGER.addHandler(handler)
+
+    scapy_logger = logging.getLogger("scapy.runtime")
+    if level == logging.DEBUG:
+        scapy_logger.setLevel(logging.DEBUG)
+    else:
+        scapy_logger.setLevel(logging.ERROR)
 
 
 def validate_and_normalize_mac(mac: str) -> str:
@@ -404,7 +424,14 @@ def parse_classless_routes(raw_data: Any) -> list[str]:
 
     if isinstance(raw_data, (list, tuple)):
         for item in raw_data:
-            if isinstance(item, (tuple, list)) and len(item) == 3:
+            if isinstance(item, str):
+                # Scapy decodes ClasslessFieldListField into strings like "10.0.0.0/8:10.99.0.1"
+                if ":" in item:
+                    dest, router = item.rsplit(":", 1)
+                    routes.append(f"{dest} via {router}")
+                else:
+                    routes.append(item)
+            elif isinstance(item, (tuple, list)) and len(item) == 3:
                 mask_len, prefix, router = item
                 routes.append(f"{prefix}/{mask_len} via {router}")
         return routes
@@ -749,6 +776,51 @@ def get_mac_for_ip(ip: str, iface: str, resolve_active: bool = True) -> str | No
     return None
 
 
+def get_route_egress_interface(ip: str) -> str | None:
+    """Determine Linux kernel egress network interface for a target IP address.
+
+    Queries the kernel FIB routing lookup using 'ip route get <ip>' to accurately
+    resolve which network interface would carry traffic to the given destination,
+    properly accounting for VRFs, metrics, and policy routing. Falls back to Scapy's
+    internal routing table if the system 'ip' utility is unavailable.
+
+    Args:
+        ip: Target destination IPv4 or IPv6 address string.
+
+    Returns:
+        Interface name string (e.g. 'eth0', 'wg0', 'tun-client') if resolvable, or None.
+    """
+    # 1. Primary resolution: invoke Linux 'ip route get <ip>' for true FIB / VRF lookup
+    try:
+        res = subprocess.run(
+            ["ip", "route", "get", ip],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=2.0,
+        )
+        if res.returncode == 0:
+            match = re.search(r"\bdev\s+(\S+)", res.stdout)
+            if match:
+                return match.group(1).strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+
+    # 2. Secondary fallback: consult Scapy's internal routing table
+    if SCAPY_AVAILABLE:
+        try:
+            from scapy.config import conf
+
+            if hasattr(conf, "route") and conf.route is not None:
+                rt = conf.route.route(ip)
+                if rt and rt[0]:
+                    return str(rt[0])
+        except Exception:
+            pass
+
+    return None
+
+
 def is_layer3_interface(interface: str) -> bool:
     """Check if interface is a pure Layer 3 interface (no Ethernet framing, e.g. WireGuard/tun/ppp)."""
     type_file = Path("/sys/class/net") / interface / "type"
@@ -1083,6 +1155,20 @@ def send_and_receive_dhcp(
 
     packets_to_send: list[Any] = []
     if servers:
+        if is_l3:
+            for s_ip in servers:
+                egress = get_route_egress_interface(s_ip)
+                if egress and egress != interface:
+                    LOGGER.warning(
+                        "Target DHCP server %s is routed via '%s', not specified Layer 3 interface '%s'. "
+                        "Packets will egress via '%s' due to kernel routing. Ensure a route exists via '%s'.",
+                        s_ip,
+                        egress,
+                        interface,
+                        egress,
+                        interface,
+                    )
+
         gw_ip = get_gateway_ip(interface) if not is_l3 else None
         gw_mac = get_mac_for_ip(gw_ip, interface) if gw_ip and not is_l3 else None
         if not is_l3 and gw_ip:
@@ -1118,6 +1204,12 @@ def send_and_receive_dhcp(
             )
             packets_to_send.append(pkt)
     else:
+        if is_l3:
+            raise ValueError(
+                f"Interface '{interface}' is a Layer 3 point-to-point / tunnel device without broadcast capability. "
+                "Specifying target DHCP server(s) (-s/--dhcp-servers) is required."
+            )
+
         xid = xid_base
         pkt = build_dhcp_discover(
             mac_str=mac_str,
@@ -1134,8 +1226,37 @@ def send_and_receive_dhcp(
         )
         packets_to_send.append(pkt)
 
+    LOGGER.info("* Interface: %s (MAC: %s, IPv4: %s)", interface, mac_str, local_ip if local_ip != "0.0.0.0" else "-")
+    if is_l3:
+        LOGGER.info("* Mode: Layer 3 Point-to-Point / Tunnel via %s", ", ".join(servers) if servers else "-")
+    elif servers:
+        LOGGER.info("* Mode: Unicast Relay Simulation to %s:67", ", ".join(servers))
+    else:
+        LOGGER.info("* Mode: Layer 2 Broadcast to 255.255.255.255:67")
+
+    if circuit_id or remote_id or relay_subnet:
+        opt82_parts: list[str] = []
+        if circuit_id:
+            opt82_parts.append(f"circuit_id='{circuit_id}'")
+        if remote_id:
+            opt82_parts.append(f"remote_id='{remote_id}'")
+        if relay_subnet:
+            opt82_parts.append(f"target_gateway={relay_subnet}")
+        if effective_giaddr != "0.0.0.0":
+            opt82_parts.append(f"giaddr={effective_giaddr}")
+        LOGGER.info("* Option 82: %s", ", ".join(opt82_parts))
+
     for idx, p in enumerate(packets_to_send, start=1):
-        target_info = f" -> {servers[idx - 1]}" if servers and idx - 1 < len(servers) else ""
+        target_info = f" to {servers[idx - 1]}" if servers and idx - 1 < len(servers) else ""
+        opts_count = len(param_req_list) if param_req_list is not None else 0
+        current_xid = xid_base + (idx - 1 if servers else 0)
+        LOGGER.info(
+            "> DHCPDISCOVER #%d%s: XID 0x%08x (requesting %d options)",
+            idx,
+            target_info,
+            current_xid,
+            opts_count,
+        )
         LOGGER.debug(
             "%s",
             format_packet_tree(
@@ -1145,38 +1266,18 @@ def send_and_receive_dhcp(
             ),
         )
 
-    LOGGER.info(
-        "Sending DHCP Discover on '%s' (timeout: %.1fs, packets: %d, requested options: %d, L3: %s)...",
-        interface,
-        timeout,
-        len(packets_to_send),
-        len(param_req_list),
-        is_l3,
-    )
-    if servers:
-        LOGGER.info("Target DHCP Servers: %s", ", ".join(servers))
-    if circuit_id:
-        LOGGER.info("Option 82 Circuit-ID: '%s'", circuit_id)
-    if remote_id:
-        LOGGER.info("Option 82 Remote-ID: '%s'", remote_id)
-    if relay_subnet:
-        LOGGER.info("Option 82 Link Selection Subnet: '%s'", relay_subnet)
-
     start_time = time.monotonic()
     filter_exp = "udp and (port 67 or port 68)"
+    LOGGER.info("* Waiting for replies on '%s' (timeout: %.1fs)...", interface, timeout)
     LOGGER.debug("* [capture] Listening on '%s' (BPF filter: '%s', timeout: %.1fs)...", interface, filter_exp, timeout)
     if is_l3:
-        import warnings
-
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=SyntaxWarning, message=r".*iface.*has no effect on L3.*")
-            ans, _ = sr(
-                packets_to_send if len(packets_to_send) > 1 else packets_to_send[0],
-                timeout=timeout,
-                verbose=False,
-                multi=listen_all or len(packets_to_send) > 1,
-                filter=filter_exp,
-            )
+        ans, _ = sr(
+            packets_to_send if len(packets_to_send) > 1 else packets_to_send[0],
+            timeout=timeout,
+            verbose=False,
+            multi=listen_all or len(packets_to_send) > 1,
+            filter=filter_exp,
+        )
     else:
         ans, _ = srp(
             packets_to_send if len(packets_to_send) > 1 else packets_to_send[0],
@@ -1198,6 +1299,14 @@ def send_and_receive_dhcp(
 
     for f_idx, (_, rcv) in enumerate(ans, start=1):
         offer = parse_dhcp_packet(rcv)
+        lease_info = f", lease: {format_duration(offer.lease_time)}" if offer.lease_time else ""
+        LOGGER.info(
+            "< DHCPOFFER #%d: from %s offers %s%s",
+            f_idx,
+            offer.server_id or offer.server_ip,
+            offer.offered_ip,
+            lease_info,
+        )
         LOGGER.debug(
             "%s",
             format_packet_tree(
@@ -1213,6 +1322,8 @@ def send_and_receive_dhcp(
             continue
         seen_keys.add(key)
         offers.append(offer)
+
+    LOGGER.info("* Completed in %.2fs (%d offers received)", elapsed, len(offers))
 
     return offers
 
@@ -1257,34 +1368,23 @@ def format_offers_text(
         lines.append("")
 
     if not offers:
-        lines.append("=" * 70)
-        lines.append(f"[FAILURE] No DHCP Offer received on '{interface}'")
-        lines.append("=" * 70)
-        lines.append(f"Wait duration: {timeout:.1f} seconds")
-        if requested_options:
-            lines.append(f"Requested DHCP Options (Option 55): {format_options_summary(requested_options)}")
-        lines.append("Interface Diagnostics:")
-        lines.append(f"  - Operstate : {diagnostics.get('operstate', 'unknown')}")
-        lines.append(f"  - Carrier   : {diagnostics.get('carrier', 'unknown')}")
-        lines.append(f"  - MAC       : {diagnostics.get('address', 'unknown')}")
-        lines.append(f"  - MTU       : {diagnostics.get('mtu', 'unknown')}")
-        lines.append("")
-        lines.append("Troubleshooting Checklist:")
+        err_lines: list[str] = []
+        if servers:
+            s_str = ", ".join(servers)
+            err_lines.append(
+                f"dhcpt: timeout after {timeout:.1f}s waiting for DHCP offers from {s_str} on interface '{interface}'"
+            )
+        else:
+            err_lines.append(f"dhcpt: timeout after {timeout:.1f}s waiting for DHCP offers on interface '{interface}'")
         if diagnostics.get("operstate") == "down":
-            lines.append(f"  * Interface '{interface}' is administratively DOWN.")
-            lines.append(f"    Run: sudo ip link set {interface} up")
-        if diagnostics.get("carrier") == "0":
-            lines.append(f"  * Interface '{interface}' has NO CARRIER (cable disconnected or switch port down).")
-        lines.append("  * Verify VLAN tagging: Is the interface on the expected VLAN/PVID?")
-        lines.append(
-            "  * Verify DHCP Relay / IP-Helper: Is a relay configured on the switch/router (e.g. Cisco 'ip helper-address')?"
-        )
-        lines.append(
-            "  * Verify routing / firewall: Ensure UDP port 67 and 68 are permitted between client/relay and DHCP server."
-        )
-        lines.append("  * Verify DHCP server: Check DHCP server logs and address pool utilization.")
-        lines.append("=" * 70)
-        return "\n".join(lines)
+            err_lines.append(
+                f"dhcpt: note: interface '{interface}' is administratively DOWN (run: ip link set {interface} up)"
+            )
+        elif diagnostics.get("carrier") == "0":
+            err_lines.append(
+                f"dhcpt: note: interface '{interface}' has NO CARRIER (cable disconnected or switch port down)"
+            )
+        return "\n".join(err_lines)
 
     server_count = len({o.server_id or o.server_ip for o in offers})
 
@@ -1888,6 +1988,13 @@ def _run(argv: list[str] | None = None) -> int:
         return 2
 
     is_l3 = is_layer3_interface(interface)
+    if is_l3 and not server_list:
+        LOGGER.error(
+            "Interface '%s' is a Layer 3 point-to-point / tunnel device without broadcast capability. "
+            "Specifying target DHCP server(s) (-s/--dhcp-servers) is required.",
+            interface,
+        )
+        return 2
 
     if not client_mac:
         if is_l3:
@@ -1910,8 +2017,18 @@ def _run(argv: list[str] | None = None) -> int:
                     or "permission denied" in err_str
                 ):
                     LOGGER.error("Permission denied retrieving hardware address on '%s'.", interface)
-                    LOGGER.error("Root privileges required to open Layer 2 raw network sockets (AF_PACKET).")
-                    LOGGER.error("Try running with sudo: sudo dhcpt -i %s", interface)
+                    if is_l3:
+                        LOGGER.error(
+                            "Root privileges (or CAP_NET_RAW) required to open Layer 3 raw network sockets (AF_INET)."
+                        )
+                    else:
+                        LOGGER.error("Root privileges required to open Layer 2 raw network sockets (AF_PACKET).")
+                    cmd_args = (
+                        " ".join(argv)
+                        if argv is not None
+                        else (" ".join(sys.argv[1:]) if len(sys.argv) > 1 else f"-i {interface}")
+                    )
+                    LOGGER.error("Try running with sudo: sudo dhcpt %s", cmd_args)
                     return 1
                 LOGGER.error("Failed to retrieve MAC address for interface '%s': %s", interface, err)
                 return 1
@@ -1948,11 +2065,51 @@ def _run(argv: list[str] | None = None) -> int:
         err_str = str(err).lower()
         if isinstance(err, PermissionError) or "operation not permitted" in err_str or "permission denied" in err_str:
             LOGGER.error("Permission denied opening raw network socket on '%s'.", interface)
-            LOGGER.error("Root privileges required to open Layer 2 raw network sockets (AF_PACKET).")
-            LOGGER.error("Try running with sudo: sudo dhcpt -i %s", interface)
+            if is_l3:
+                LOGGER.error("Root privileges (or CAP_NET_RAW) required to open Layer 3 raw network sockets (AF_INET).")
+            else:
+                LOGGER.error("Root privileges required to open Layer 2 raw network sockets (AF_PACKET).")
+            cmd_args = (
+                " ".join(argv)
+                if argv is not None
+                else (" ".join(sys.argv[1:]) if len(sys.argv) > 1 else f"-i {interface}")
+            )
+            LOGGER.error("Try running with sudo: sudo dhcpt %s", cmd_args)
             return 1
         LOGGER.error("DHCP transaction failed on interface '%s': %s", interface, err)
         LOGGER.debug("Exception traceback:", exc_info=True)
+        return 1
+
+    if not offers:
+        if args.json:
+            print(
+                format_offers_json(
+                    offers,
+                    interface,
+                    diagnostics,
+                    args.timeout,
+                    requested_options=req_options,
+                    servers=server_list,
+                    circuit_id=args.circuit_id,
+                    remote_id=args.remote_id,
+                    relay_subnet=args.relay_subnet,
+                )
+            )
+        else:
+            print(
+                format_offers_text(
+                    offers,
+                    interface,
+                    diagnostics,
+                    args.timeout,
+                    requested_options=req_options,
+                    servers=server_list,
+                    circuit_id=args.circuit_id,
+                    remote_id=args.remote_id,
+                    relay_subnet=args.relay_subnet,
+                ),
+                file=sys.stderr,
+            )
         return 1
 
     if args.json:
@@ -1983,9 +2140,6 @@ def _run(argv: list[str] | None = None) -> int:
                 relay_subnet=args.relay_subnet,
             )
         )
-
-    if not offers:
-        return 1
 
     if server_list and len(server_list) > 1:
         replied_servers = {o.server_id or o.server_ip for o in offers}
