@@ -43,10 +43,14 @@
 
 ## Development & Live-Testing Workflow
 
-### 1. Instant Live-Testing via Symlink
-To test code modifications instantly with `sudo dhcpt` without having to reinstall the package or run editable pip installs after every edit, symlink the CLI script directly to `/usr/local/bin`:
+### 1. Instant Live-Testing via `make install-dev`
+Running `make install-dev` automatically sets up the global symlink `/usr/local/bin/dhcpt -> src/dhcpt/cli.py`.
+This enables instant live-testing with `sudo dhcpt` without having to reinstall the package or run pip installs after every edit:
 ```bash
-# Symlink repo source directly into /usr/local/bin (accessible in sudo secure_path):
+# Automated via Makefile (recommended):
+make install-dev
+
+# Or manual symlink into /usr/local/bin (accessible in sudo secure_path):
 sudo ln -sf "$(pwd)/src/dhcpt/cli.py" /usr/local/bin/dhcpt
 
 # Or symlink to your personal scripte directory:
@@ -75,22 +79,42 @@ If `sudo readlink -f "$(sudo which dhcpt)"` points to `.../src/dhcpt/cli.py`, ev
 
 ## Testing & Quality Assurance
 
-Before committing any change:
-1. Run linter:
-   ```bash
-   ruff check .
-   ```
-2. Check formatting:
-   ```bash
-   ruff format --check .
-   ```
-3. Run test suite:
-   ```bash
-   PYTHONPATH=src pytest
-   ```
+### 1. Developer Makefile Commands
+- Run all linters (Ruff, ShellCheck, Pandoc, Kea config) and unit tests:
+  ```bash
+  make check
+  ```
+- Install full development environment (system tools + Python dependencies):
+  ```bash
+  make install-dev
+  ```
 
-### Pre-Commit Git Hook
-The repository includes a pre-commit hook in `.githooks/pre-commit`. Ensure it is active locally:
+### 2. Live E2E Network Testbed (ISC Kea in Network Namespaces)
+For verifying raw socket packet crafting, kernel routing, and DHCP options against active daemons:
+- **Prerequisites:** `kea-dhcp4-server` and `jq` installed (`make install-dev`).
+- **Start Testbed:**
+  ```bash
+  make testbed-start
+  ```
+  Spins up isolated namespaces (`workstation`, `vpn-gw`, `dhcp-server`, `dhcp-rogue`), a Linux bridge (`br-dhcpt`), and launches legitimate and rogue Kea servers with 100% host isolation.
+- **Run Live Test Suites:**
+  ```bash
+  make e2e
+  ```
+  Executes all modular test suites under `tests/e2e/suites/` (Broadcast, MAC reservations, unicast relays, L3 tunnels, timeouts, rogue detection).
+- **Check Status & Live Logs:**
+  ```bash
+  make testbed-status
+  tail -f /tmp/dhcpt-kea-run/dhcpt-kea-legit.log
+  ```
+- **Stop & Clean Up:**
+  ```bash
+  make testbed-stop
+  ```
+*Detailed Architecture:* See [`docs/testing-infrastruktur.md`](docs/testing-infrastruktur.md) for full topology diagrams and policy details.
+
+### 3. Pre-Commit Git Hook
+The repository includes an automated pre-commit hook in `.githooks/pre-commit` that validates Ruff, ShellCheck, Zsh completion syntax, Pandoc manpage freshness, Kea configuration schemas, and Pytest on every commit. Ensure it is active locally:
 ```bash
 git config core.hooksPath .githooks
 ```
@@ -99,6 +123,7 @@ git config core.hooksPath .githooks
 
 ## Git & Commit Conventions
 - Commit messages must be written in **English**, following Conventional Commits (`feat:`, `fix:`, `docs:`, `refactor:`, `test:`).
+- **Logical Topic Splitting**: Group changes into multiple focused, topic-oriented commits (at least one commit per distinct topic/theme, e.g. core functionality, test suites/harnesses, documentation/changelog, and build/pre-commit tooling). Never create monolithic all-in-one commits.
 - Every AI-assisted commit must include the collaborative co-author attribution:
   ```text
   Co-authored-by: Gemini <gemini@local>

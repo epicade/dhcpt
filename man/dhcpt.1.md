@@ -31,6 +31,13 @@ On Layer 3 interfaces without hardware MAC addresses (e.g., WireGuard **wg0**, O
 Both modes require superuser privileges (**sudo**) because opening raw network sockets
 in the Linux kernel requires the **CAP_NET_RAW** capability.
 
+On Layer 3 interfaces, Layer 2 broadcast is not supported; dedicated DHCP servers
+must be specified via **--dhcp-servers** (or **-s**). Because packet transmission
+on Layer 3 relies on kernel network routing, the Linux routing table must direct
+traffic for the target DHCP server IP(s) out through the specified Layer 3 interface.
+**dhcpt** automatically checks kernel route egress and issues an operational warning
+if a target server is routed via a different interface.
+
 # OPTIONS
 
 ## Interface Targeting
@@ -223,6 +230,38 @@ Verify static reservation by spoofing client MAC:
 
 ```bash
 sudo dhcpt -i eth0 -m 00:11:22:33:44:55
+```
+
+# TROUBLESHOOTING
+
+If **dhcpt** times out without receiving DHCP Offers, use the following steps to isolate the issue:
+
+### 1. Verify UDP Port 67 Reachability (Netcat)
+
+When testing remote DHCP servers (especially across VPN tunnels or routed firewalls), test if UDP port 67 is accessible:
+
+```bash
+nc -z -v -u -w 2 <server_ip> 67
+```
+
+Options: **-u** (UDP mode), **-z** (zero-I/O port scan), **-v** (verbose output), **-w 2** (2-second timeout). Note that standard Linux/OpenBSD Netcat does not support GNU-style long options.
+
+If Netcat reports *Connection to <server_ip> 67 port [udp/bootps] succeeded!* but **dhcpt** times out, UDP traffic is permitted. The server may be dropping the query due to pool exhaustion, unconfigured subnets, or missing Option 82 policies.
+
+### 2. Verify Interface Link State
+
+Ensure the network interface is up and has carrier signal:
+
+```bash
+ip link show <interface>
+```
+
+### 3. Inspect Detailed Packet Trees
+
+Run **dhcpt** with **-vv** to view outgoing and incoming packet trees and Option 82 payloads:
+
+```bash
+sudo dhcpt -i <interface> -s <server_ip> -vv
 ```
 
 # RFC REFERENCES

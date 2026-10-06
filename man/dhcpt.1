@@ -43,6 +43,16 @@ switches to raw IP sockets (\f[B]AF_INET\f[R]).
 Both modes require superuser privileges (\f[B]sudo\f[R]) because opening
 raw network sockets in the Linux kernel requires the
 \f[B]CAP_NET_RAW\f[R] capability.
+.PP
+On Layer 3 interfaces, Layer 2 broadcast is not supported; dedicated
+DHCP servers must be specified via \f[B]\-\-dhcp\-servers\f[R] (or
+\f[B]\-s\f[R]).
+Because packet transmission on Layer 3 relies on kernel network routing,
+the Linux routing table must direct traffic for the target DHCP server
+IP(s) out through the specified Layer 3 interface.
+\f[B]dhcpt\f[R] automatically checks kernel route egress and issues an
+operational warning if a target server is routed via a different
+interface.
 .SH OPTIONS
 .SS Interface Targeting
 .TP
@@ -312,6 +322,39 @@ Verify static reservation by spoofing client MAC:
 .IP
 .EX
 sudo dhcpt \-i eth0 \-m 00:11:22:33:44:55
+.EE
+.SH TROUBLESHOOTING
+If \f[B]dhcpt\f[R] times out without receiving DHCP Offers, use the
+following steps to isolate the issue:
+.SS 1. Verify UDP Port 67 Reachability (Netcat)
+When testing remote DHCP servers (especially across VPN tunnels or
+routed firewalls), test if UDP port 67 is accessible:
+.IP
+.EX
+nc \-z \-v \-u \-w 2 <server_ip> 67
+.EE
+.PP
+Options: \f[B]\-u\f[R] (UDP mode), \f[B]\-z\f[R] (zero\-I/O port scan),
+\f[B]\-v\f[R] (verbose output), \f[B]\-w 2\f[R] (2\-second timeout).
+Note that standard Linux/OpenBSD Netcat does not support GNU\-style long
+options.
+.PP
+If Netcat reports \f[I]Connection to  67 port [udp/bootps]
+succeeded!\f[R] but \f[B]dhcpt\f[R] times out, UDP traffic is permitted.
+The server may be dropping the query due to pool exhaustion,
+unconfigured subnets, or missing Option 82 policies.
+.SS 2. Verify Interface Link State
+Ensure the network interface is up and has carrier signal:
+.IP
+.EX
+ip link show <interface>
+.EE
+.SS 3. Inspect Detailed Packet Trees
+Run \f[B]dhcpt\f[R] with \f[B]\-vv\f[R] to view outgoing and incoming
+packet trees and Option 82 payloads:
+.IP
+.EX
+sudo dhcpt \-i <interface> \-s <server_ip> \-vv
 .EE
 .SH RFC REFERENCES
 .TP
