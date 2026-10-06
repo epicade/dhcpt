@@ -71,6 +71,7 @@ ignore = ["E501"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["src"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/dhcpt"]
@@ -82,12 +83,14 @@ packages = ["src/dhcpt"]
 [tool.hatch.build.targets.wheel.shared-data]
 "man/dhcpt.1" = "share/man/man1/dhcpt.1"
 "docs/relay-mechanics.md" = "share/doc/dhcpt/relay-mechanics.md"
+"docs/testing-infrastruktur.md" = "share/doc/dhcpt/testing-infrastruktur.md"
 "completions/bash/dhcpt" = "share/bash-completion/completions/dhcpt"
 "completions/zsh/_dhcpt" = "share/zsh/site-functions/_dhcpt"
 
 [tool.hatch.build.targets.sdist]
 include = [
     "/src",
+    "/tests",
     "/completions",
     "/skills",
     "/man",

@@ -164,10 +164,10 @@ _dhcpt_interfaces() {
 _dhcpt() {
   _arguments -s \
     '(-i --interface 1)'{-i,--interface}'[Target network interface]:Network Interface:_dhcpt_interfaces' \
-    '(-s --dhcp-servers --dhcp-server --server --servers)'{-s,--dhcp-servers}'[Query dedicated remote DHCP server(s)]:DHCP Server:_dhcpt_servers' \
+    '(-s --dhcp-servers --dhcp-server --server --servers)'{-s,--dhcp-servers,--dhcp-server,--server,--servers}'[Query dedicated remote DHCP server(s)]:DHCP Server:_dhcpt_servers' \
     '--circuit-id[Simulate Option 82 Circuit ID]:Circuit-ID:_dhcpt_circuits' \
     '--remote-id[Simulate Option 82 Remote ID]:Remote-ID / Switch Hostname:_hosts' \
-    '(--target-gateway --relay-subnet)'{--target-gateway}'[Simulate remote subnet via RFC 3527 Link Selection]:Target Subnet Gateway IP:_dhcpt_subnets' \
+    '(--target-gateway --relay-subnet)'{--target-gateway,--relay-subnet}'[Simulate remote subnet via RFC 3527 Link Selection]:Target Subnet Gateway IP:_dhcpt_subnets' \
     '--giaddr[Explicitly override BOOTP Relay Agent Gateway IP (giaddr)]:Gateway IP:_message "Gateway IP (e.g. 10.50.1.254)"' \
     '(-t --timeout)'{-t,--timeout}'[Timeout in seconds to wait for responses]:Seconds:(1 2 3 5 10 15 30)' \
     '(-a --all)'{-a,--all}'[Capture all responding DHCP servers (rogue detection)]' \
@@ -182,6 +182,7 @@ _dhcpt() {
     '--list-options[List known RFC DHCP options and exit]' \
     '--install-skill[Install AI agent skill for Gemini CLI, Claude Code, or Mistral Vibe]:Assistant Target:(all gemini claude mistral)' \
     '--force[Force overwrite of existing skill files or symlinks during --install-skill]' \
+    '--completion[Generate shell completion script and exit]:Shell:(bash zsh)' \
     '--version[Show program version and exit]' \
     '(-h --help)'{-h,--help}'[Show help message and exit]' \
     '(-i --interface 1)1:Network Interface:_dhcpt_interfaces'

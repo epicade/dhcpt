@@ -9,42 +9,49 @@ on:
 jobs:
   lint-shell-and-docs:
     name: Lint Shell & Manpage
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install dependencies (ShellCheck, Zsh, Groff, man-db, Pandoc)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y shellcheck zsh groff man-db pandoc
+      - name: Set up Pandoc
+        uses: pandoc/actions/setup@v1
+        with:
+          version: 3.7.0.2
 
-      - name: Validate Bash Completion with ShellCheck and Syntax
-        run: |
-          shellcheck completions/bash/dhcpt
-          bash -o noexec completions/bash/dhcpt
+      - name: Install dependencies via Makefile (make install-lint)
+        run: make install-lint
 
-      - name: Validate Zsh Completion Syntax and Runtime Loading
-        run: |
-          zsh --noexec completions/zsh/_dhcpt
-          zsh -f -c 'autoload -Uz compinit && compinit -D -u && source completions/zsh/_dhcpt'
+      - name: Run Full Lint Suite (make lint)
+        run: make lint
 
-      - name: Validate UNIX Manpage Formatting
+  test-enterprise-linux:
+    name: Test (AlmaLinux 9 / Python 3.9)
+    runs-on: ubuntu-latest
+    container:
+      image: almalinux:9
+    steps:
+      - name: Optimize DNF and install base tools
         run: |
-          man -l man/dhcpt.1 > /dev/null
+          echo -e "fastestmirror=True\nmax_parallel_downloads=10\ninstall_weak_deps=False" >> /etc/dnf/dnf.conf
+          dnf install -y git-core make python3-pip gcc python3-devel
 
-      - name: Verify Manpage is up-to-date with Markdown Source
-        run: |
-          pandoc man/dhcpt.1.md -s -t man -f markdown-smart -o /tmp/check_dhcpt.1
-          cmp man/dhcpt.1 /tmp/check_dhcpt.1
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-  test:
+      - name: Install package and test dependencies
+        run: python3 -m pip install -e .[dev]
+
+      - name: Run Pytest Test Suite via Makefile
+        run: make test
+
+  test-ubuntu:
     name: Test (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
 
     steps:
       - name: Checkout repository
@@ -56,15 +63,47 @@ jobs:
           python-version: ${{ matrix.python-version }}
 
       - name: Install package and dependencies
+        run: python3 -m pip install -e .[dev]
+
+      - name: Run Pytest Test Suite via Makefile
+        run: make test
+
+  e2e-live-kea:
+    name: Live Network E2E (Kea DHCPv4 in Namespaces)
+    runs-on: ubuntu-26.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install testbed system dependencies
+        run: make install-testbed
+
+      - name: Install dhcpt globally via make install
+        run: sudo make install
+
+      - name: Verify global installation, manpage, and shell completions
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install .[dev]
+          set -e
+          test -x /usr/local/bin/dhcpt || { echo "[ERROR] /usr/local/bin/dhcpt is not installed or not executable!" >&2; exit 1; }
+          test "$(which dhcpt)" = "/usr/local/bin/dhcpt" || { echo "[ERROR] 'which dhcpt' expected '/usr/local/bin/dhcpt', got '$(which dhcpt)'!" >&2; exit 1; }
+          test "$(sudo which dhcpt)" = "/usr/local/bin/dhcpt" || { echo "[ERROR] 'sudo which dhcpt' expected '/usr/local/bin/dhcpt', got '$(sudo which dhcpt)'!" >&2; exit 1; }
+          test -f /usr/local/share/man/man1/dhcpt.1 || { echo "[ERROR] Missing installed manpage in /usr/local/share/man/man1/dhcpt.1!" >&2; exit 1; }
+          test -f /usr/local/share/bash-completion/completions/dhcpt || { echo "[ERROR] Missing installed bash completion in /usr/local/share/bash-completion/completions/dhcpt!" >&2; exit 1; }
+          test -f /usr/local/share/zsh/site-functions/_dhcpt || { echo "[ERROR] Missing installed zsh completion in /usr/local/share/zsh/site-functions/_dhcpt!" >&2; exit 1; }
+          /usr/local/bin/dhcpt --version || { echo "[ERROR] Failed executing /usr/local/bin/dhcpt --version!" >&2; exit 1; }
+          sudo dhcpt --version || { echo "[ERROR] Failed executing sudo dhcpt --version!" >&2; exit 1; }
+          man_path=$(man -w -M /usr/local/share/man dhcpt)
+          test "$(readlink -f "$man_path")" = "$(readlink -f /usr/local/share/man/man1/dhcpt.1)" || { echo "[ERROR] man resolution expected to resolve to /usr/local/share/man/man1/dhcpt.1, got '$man_path'!" >&2; exit 1; }
 
-      - name: Run Ruff Linter
-        run: ruff check .
+      - name: Start Live Kea Testbed (make testbed-start)
+        run: |
+          sudo make testbed-start
 
-      - name: Run Ruff Formatter Check
-        run: ruff format --check .
+      - name: Run Live E2E Tests (make e2e)
+        run: |
+          sudo make e2e
 
-      - name: Run Pytest Test Suite
-        run: PYTHONPATH=src pytest -v
+      - name: Stop Live Kea Testbed (make testbed-stop)
+        if: always()
+        run: |
+          sudo make testbed-stop
