@@ -1,0 +1,44 @@
+{
+  "Dhcp4": {
+    "interfaces-config": {
+      "interfaces": ["veth-rogue"]
+    },
+    "lease-database": {
+      "type": "memfile",
+      "persist": false
+    },
+    "valid-lifetime": 3600,
+    "renew-timer": 1800,
+    "rebind-timer": 3150,
+    "subnet4": [
+      {
+        "id": 100,
+        "subnet": "10.99.0.0/24",
+        "pools": [
+          { "pool": "10.99.0.220 - 10.99.0.240" }
+        ],
+        "option-data": [
+          {
+            "name": "routers",
+            "data": "10.99.0.254"
+          },
+          {
+            "name": "domain-name-servers",
+            "data": "10.99.0.254"
+          }
+        ]
+      }
+    ],
+    "loggers": [
+      {
+        "name": "kea-dhcp4",
+        "output_options": [
+          {
+            "output": "stdout"
+          }
+        ],
+        "severity": "INFO"
+      }
+    ]
+  }
+}
