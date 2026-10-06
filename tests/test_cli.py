@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 from unittest.mock import mock_open, patch
 
 import pytest
@@ -115,6 +116,12 @@ def test_parse_classless_routes_tuples() -> None:
     data = [(24, "10.1.2.0", "192.168.1.1"), (16, "172.16.0.0", "192.168.1.254")]
     routes = parse_classless_routes(data)
     assert routes == ["10.1.2.0/24 via 192.168.1.1", "172.16.0.0/16 via 192.168.1.254"]
+
+
+def test_parse_classless_routes_scapy_strings() -> None:
+    data = ["10.0.0.0/8:10.99.0.1", "192.168.50.0/24:10.99.0.254"]
+    routes = parse_classless_routes(data)
+    assert routes == ["10.0.0.0/8 via 10.99.0.1", "192.168.50.0/24 via 10.99.0.254"]
 
 
 def test_parse_classless_routes_wire_bytes() -> None:
@@ -503,11 +510,23 @@ def test_dhcpt_log_formatter() -> None:
     rec_debug_plain = logging.LogRecord("test", logging.DEBUG, "path", 10, "plain message", (), None)
     assert formatter.format(rec_debug_plain) == "* plain message"
 
-    rec_info = logging.LogRecord("test", logging.INFO, "path", 10, "info message", (), None)
-    assert formatter.format(rec_info) == "[INFO] info message"
+    rec_info_star = logging.LogRecord("test", logging.INFO, "path", 10, "* Interface: eth0", (), None)
+    assert formatter.format(rec_info_star) == "* Interface: eth0"
+
+    rec_info_send = logging.LogRecord("test", logging.INFO, "path", 10, "> DHCPDISCOVER #1", (), None)
+    assert formatter.format(rec_info_send) == "> DHCPDISCOVER #1"
+
+    rec_info_recv = logging.LogRecord("test", logging.INFO, "path", 10, "< DHCPOFFER #1", (), None)
+    assert formatter.format(rec_info_recv) == "< DHCPOFFER #1"
+
+    rec_info_plain = logging.LogRecord("test", logging.INFO, "path", 10, "info message", (), None)
+    assert formatter.format(rec_info_plain) == "* info message"
 
     rec_warn = logging.LogRecord("test", logging.WARNING, "path", 10, "warning message", (), None)
-    assert formatter.format(rec_warn) == "[WARN] warning message"
+    assert formatter.format(rec_warn) == "* [WARN] warning message"
+
+    rec_err = logging.LogRecord("test", logging.ERROR, "path", 10, "error message", (), None)
+    assert formatter.format(rec_err) == "dhcpt: error: error message"
 
 
 def test_format_offers_text_cisco_relay_simulation_header() -> None:
@@ -565,11 +584,13 @@ def test_format_offers_text_failure() -> None:
         "mtu": "1500",
     }
     text = format_offers_text([], "eth0", diag, 5.0, requested_options=[1, 3, 6])
-    assert "[FAILURE] No DHCP Offer received on 'eth0'" in text
-    assert "Requested DHCP Options (Option 55):" in text
-    assert "Interface 'eth0' is administratively DOWN." in text
-    assert "Interface 'eth0' has NO CARRIER" in text
-    assert "Troubleshooting Checklist:" in text
+    assert "dhcpt: timeout after 5.0s waiting for DHCP offers on interface 'eth0'" in text
+    assert "interface 'eth0' is administratively DOWN" in text
+    assert "Troubleshooting Checklist:" not in text
+
+    # Also test with specific servers
+    text_servers = format_offers_text([], "eth0", {"operstate": "up", "carrier": "1"}, 3.0, servers=["10.1.1.1"])
+    assert "dhcpt: timeout after 3.0s waiting for DHCP offers from 10.1.1.1 on interface 'eth0'" in text_servers
 
 
 def test_format_offers_json() -> None:
@@ -738,6 +759,20 @@ def test_main_permission_denied(capsys: pytest.CaptureFixture[str]) -> None:
         captured = capsys.readouterr()
         assert "Permission denied opening raw network socket on 'eth0'" in captured.err
         assert "Root privileges required to open Layer 2 raw network sockets" in captured.err
+
+
+def test_main_permission_denied_layer3(capsys: pytest.CaptureFixture[str]) -> None:
+    with (
+        patch.object(dhcpt_mod, "get_interface_diagnostics", return_value={"exists": True, "operstate": "up"}),
+        patch.object(dhcpt_mod, "is_layer3_interface", return_value=True),
+        patch.object(dhcpt_mod, "send_and_receive_dhcp", side_effect=PermissionError("Operation not permitted")),
+    ):
+        exit_code = main(["-i", "vpn0", "-s", "10.1.1.1"])
+        assert exit_code == 1
+        captured = capsys.readouterr()
+        assert "Permission denied opening raw network socket on 'vpn0'" in captured.err
+        assert "Root privileges (or CAP_NET_RAW) required to open Layer 3 raw network sockets (AF_INET)" in captured.err
+        assert "Try running with sudo: sudo dhcpt -i vpn0 -s 10.1.1.1" in captured.err
 
 
 def test_main_interface_does_not_exist(capsys: pytest.CaptureFixture[str]) -> None:
@@ -917,7 +952,8 @@ def test_main_no_offers(capsys: pytest.CaptureFixture[str]) -> None:
         exit_code = main(["-i", "eth0"])
         assert exit_code == 1
         captured = capsys.readouterr()
-        assert "[FAILURE] No DHCP Offer received" in captured.out
+        assert "dhcpt: timeout after" in captured.err
+        assert "administratively DOWN" in captured.err
 
 
 def test_main_multi_server_partial_failure(capsys: pytest.CaptureFixture[str]) -> None:
@@ -1082,6 +1118,7 @@ def test_package_public_api() -> None:
         "build_dhcp_discover",
         "build_option_82",
         "decode_rfc3397_domain_search",
+        "get_route_egress_interface",
         "is_layer3_interface",
         "parse_classless_routes",
         "parse_dhcp_packet",
@@ -1092,3 +1129,345 @@ def test_package_public_api() -> None:
     for symbol in expected_symbols:
         assert hasattr(dhcpt, symbol), f"Expected symbol '{symbol}' in dhcpt package exports"
     assert dhcpt.__all__ == expected_symbols
+
+
+def test_get_route_egress_interface() -> None:
+    egress = dhcpt_mod.get_route_egress_interface("127.0.0.1")
+    assert egress == "lo"
+
+
+def test_get_route_egress_interface_mocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=["ip", "route", "get", "10.77.0.1"],
+            returncode=0,
+            stdout="10.77.0.1 dev tun-client src 10.88.0.2 uid 1000\n",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    assert dhcpt_mod.get_route_egress_interface("10.77.0.1") == "tun-client"
+
+
+def test_send_and_receive_dhcp_l3_route_warning(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    monkeypatch.setattr(dhcpt_mod, "SCAPY_AVAILABLE", True)
+    monkeypatch.setattr(dhcpt_mod, "is_layer3_interface", lambda _: True)
+    monkeypatch.setattr(dhcpt_mod, "get_if_addr", lambda _: "10.88.0.2")
+    monkeypatch.setattr(dhcpt_mod, "get_route_egress_interface", lambda _: "eth0")
+    monkeypatch.setattr(dhcpt_mod, "sr", lambda *args, **kwargs: ([], []))
+
+    with caplog.at_level("WARNING"):
+        dhcpt_mod.send_and_receive_dhcp(
+            interface="wg0",
+            mac_str="00:11:22:33:44:55",
+            servers=["10.1.1.1"],
+            timeout=0.1,
+        )
+
+    assert any("Target DHCP server 10.1.1.1 is routed via 'eth0'" in r.message for r in caplog.records)
+
+
+def test_send_and_receive_dhcp_l3_no_servers_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(dhcpt_mod, "SCAPY_AVAILABLE", True)
+    monkeypatch.setattr(dhcpt_mod, "is_layer3_interface", lambda _: True)
+    monkeypatch.setattr(dhcpt_mod, "get_if_addr", lambda _: "10.88.0.2")
+
+    with pytest.raises(ValueError, match="without broadcast capability"):
+        dhcpt_mod.send_and_receive_dhcp(
+            interface="wg0",
+            mac_str="00:11:22:33:44:55",
+            servers=None,
+            timeout=0.1,
+        )
+
+
+def test_run_l3_without_servers_exit_code_2(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    monkeypatch.setattr(dhcpt_mod, "SCAPY_AVAILABLE", True)
+    monkeypatch.setattr(dhcpt_mod, "is_layer3_interface", lambda _: True)
+    monkeypatch.setattr(dhcpt_mod, "get_interface_diagnostics", lambda _: {"exists": True})
+
+    with caplog.at_level("ERROR"):
+        exit_code = dhcpt_mod._run(["-i", "wg0"])
+
+    assert exit_code == 2
+    assert any("without broadcast capability" in r.message for r in caplog.records)
+
+
+def test_get_gateway_ip_success(monkeypatch: pytest.MonkeyPatch) -> None:
+    # 0101A8C0 in little-endian hex is 192.168.1.1
+    route_content = (
+        "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n"
+        "eth0\t00000000\t0101A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0\n"
+        "eth0\t0001A8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0\n"
+    )
+    with patch("builtins.open", mock_open(read_data=route_content)):
+        gw = dhcpt_mod.get_gateway_ip("eth0")
+    assert gw == "192.168.1.1"
+
+
+def test_get_gateway_ip_no_default_gateway() -> None:
+    # Gateway is 00000000 (direct subnet without gateway)
+    route_content = (
+        "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\tMTU\tWindow\tIRTT\n"
+        "eth0\t00000000\t00000000\t0001\t0\t0\t100\t00000000\t0\t0\t0\n"
+    )
+    with patch("builtins.open", mock_open(read_data=route_content)):
+        assert dhcpt_mod.get_gateway_ip("eth0") is None
+
+
+def test_get_gateway_ip_missing_or_error() -> None:
+    def fake_open(*args: Any, **kwargs: Any) -> None:
+        raise OSError("File not found")
+
+    with patch("builtins.open", fake_open):
+        assert dhcpt_mod.get_gateway_ip("eth0") is None
+
+
+def test_get_interface_diagnostics_existing() -> None:
+    diag = dhcpt_mod.get_interface_diagnostics("lo")
+    assert diag["exists"] is True
+    assert diag["address"] == "00:00:00:00:00:00"
+    assert diag["mtu"] != "unknown"
+    assert "operstate" in diag
+
+
+def test_get_interface_diagnostics_not_found() -> None:
+    diag = dhcpt_mod.get_interface_diagnostics("non_existent_dummy_999")
+    assert diag["exists"] is False
+    assert diag["operstate"] == "unknown"
+    assert diag["address"] == "unknown"
+
+
+def test_is_agent_present_directory_match(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    gemini_home = tmp_path / ".gemini"
+    gemini_home.mkdir()
+
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setattr(dhcpt_mod.shutil, "which", lambda _: None)
+
+    assert dhcpt_mod.is_agent_present("gemini") is True
+    assert dhcpt_mod.is_agent_present("claude") is False
+
+
+def test_is_agent_present_cli_binary_match(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+
+    def fake_which(cmd: str) -> str | None:
+        return "/usr/local/bin/claude" if cmd == "claude" else None
+
+    monkeypatch.setattr(dhcpt_mod.shutil, "which", fake_which)
+    assert dhcpt_mod.is_agent_present("claude") is True
+    assert dhcpt_mod.is_agent_present("mistral") is False
+
+
+def test_parse_option_82_extended() -> None:
+    # Suboption 5 (link_selection, len 4): 10.50.1.1
+    # Suboption 1 (circuit_id, len 4): "eth0"
+    # Suboption 99 (unknown, len 2): invalid utf-8 0xffff
+    raw = b"\x05\x04\x0a\x32\x01\x01\x01\x04eth0\x63\x02\xff\xff"
+    parsed = dhcpt_mod.parse_option_82(raw)
+    assert parsed["link_selection"] == "10.50.1.1"
+    assert parsed["circuit_id"] == "eth0"
+    assert parsed["subopt_99"] == "ffff"
+
+
+def test_parse_option_82_truncated() -> None:
+    # Header says length is 10, but only 2 bytes provided
+    raw = b"\x01\x0a\x01\x02"
+    parsed = dhcpt_mod.parse_option_82(raw)
+    # Parser should safely terminate without throwing IndexError
+    assert isinstance(parsed, dict)
+
+
+def test_build_option_82_with_remote_id() -> None:
+    raw = dhcpt_mod.build_option_82(remote_id="sw-core-01", circuit_id="Vlan100")
+    parsed = dhcpt_mod.parse_option_82(raw)
+    assert parsed["remote_id"] == "sw-core-01"
+    assert parsed["circuit_id"] == "Vlan100"
+
+
+def test_main_remote_id_and_circuit_id(capsys: pytest.CaptureFixture[str]) -> None:
+    mock_offer = DHCPOffer(server_ip="10.1.1.1", server_mac="00:11:22:33:44:55", offered_ip="10.1.1.50")
+    with (
+        patch.object(dhcpt_mod, "get_interface_diagnostics", return_value={"exists": True, "operstate": "up"}),
+        patch.object(dhcpt_mod, "get_if_hwaddr", return_value="00:11:22:33:44:55"),
+        patch.object(dhcpt_mod, "send_and_receive_dhcp", return_value=[mock_offer]) as mock_send,
+    ):
+        exit_code = main(["-i", "eth0", "-s", "10.1.1.1", "--remote-id", "sw-core-01", "--circuit-id", "Vlan100"])
+        assert exit_code == 0
+        kwargs = mock_send.call_args.kwargs
+        assert kwargs.get("remote_id") == "sw-core-01"
+        assert kwargs.get("circuit_id") == "Vlan100"
+
+
+def test_main_clear_default_options(capsys: pytest.CaptureFixture[str]) -> None:
+    mock_offer = DHCPOffer(server_ip="10.1.1.1", server_mac="00:11:22:33:44:55", offered_ip="10.1.1.50")
+    with (
+        patch.object(dhcpt_mod, "get_interface_diagnostics", return_value={"exists": True, "operstate": "up"}),
+        patch.object(dhcpt_mod, "get_if_hwaddr", return_value="00:11:22:33:44:55"),
+        patch.object(dhcpt_mod, "send_and_receive_dhcp", return_value=[mock_offer]) as mock_send,
+    ):
+        # 1. With -o 26: strictly requested options only
+        exit_code = main(["-i", "eth0", "--clear-default-options", "-o", "26"])
+        assert exit_code == 0
+        assert mock_send.call_args.kwargs.get("param_req_list") == [26]
+
+        # 2. Without -o: empty list
+        exit_code2 = main(["-i", "eth0", "--clear-default-options"])
+        assert exit_code2 == 0
+        assert mock_send.call_args.kwargs.get("param_req_list") == []
+
+
+def test_main_mac_spoofing(capsys: pytest.CaptureFixture[str]) -> None:
+    mock_offer = DHCPOffer(server_ip="10.1.1.1", server_mac="00:11:22:33:44:55", offered_ip="10.1.1.50")
+    with (
+        patch.object(dhcpt_mod, "get_interface_diagnostics", return_value={"exists": True, "operstate": "up"}),
+        patch.object(dhcpt_mod, "get_if_hwaddr", return_value="00:00:00:00:00:01"),
+        patch.object(dhcpt_mod, "send_and_receive_dhcp", return_value=[mock_offer]) as mock_send,
+    ):
+        exit_code = main(["-i", "eth0", "--mac", "aa:bb:cc:dd:ee:ff"])
+        assert exit_code == 0
+        assert mock_send.call_args.kwargs.get("mac_str") == "aa:bb:cc:dd:ee:ff"
+
+
+def test_main_no_broadcast(capsys: pytest.CaptureFixture[str]) -> None:
+    mock_offer = DHCPOffer(server_ip="10.1.1.1", server_mac="00:11:22:33:44:55", offered_ip="10.1.1.50")
+    with (
+        patch.object(dhcpt_mod, "get_interface_diagnostics", return_value={"exists": True, "operstate": "up"}),
+        patch.object(dhcpt_mod, "get_if_hwaddr", return_value="00:11:22:33:44:55"),
+        patch.object(dhcpt_mod, "send_and_receive_dhcp", return_value=[mock_offer]) as mock_send,
+    ):
+        exit_code = main(["-i", "eth0", "--no-broadcast"])
+        assert exit_code == 0
+        assert mock_send.call_args.kwargs.get("broadcast") is False
+
+
+def test_main_giaddr_override(capsys: pytest.CaptureFixture[str]) -> None:
+    mock_offer = DHCPOffer(server_ip="10.1.1.1", server_mac="00:11:22:33:44:55", offered_ip="10.50.1.50")
+    with (
+        patch.object(dhcpt_mod, "get_interface_diagnostics", return_value={"exists": True, "operstate": "up"}),
+        patch.object(dhcpt_mod, "get_if_hwaddr", return_value="00:11:22:33:44:55"),
+        patch.object(dhcpt_mod, "send_and_receive_dhcp", return_value=[mock_offer]) as mock_send,
+    ):
+        exit_code = main(["-i", "eth0", "-s", "10.1.1.1", "--giaddr", "10.50.1.1"])
+        assert exit_code == 0
+        assert mock_send.call_args.kwargs.get("giaddr") == "10.50.1.1"
+
+
+def test_main_positional_interface(capsys: pytest.CaptureFixture[str]) -> None:
+    mock_offer = DHCPOffer(server_ip="10.1.1.1", server_mac="00:11:22:33:44:55", offered_ip="10.1.1.50")
+    with (
+        patch.object(dhcpt_mod, "get_interface_diagnostics", return_value={"exists": True, "operstate": "up"}),
+        patch.object(dhcpt_mod, "get_if_hwaddr", return_value="00:11:22:33:44:55"),
+        patch.object(dhcpt_mod, "send_and_receive_dhcp", return_value=[mock_offer]) as mock_send,
+    ):
+        exit_code = main(["eth0"])
+        assert exit_code == 0
+        assert mock_send.call_args.kwargs.get("interface") == "eth0"
+
+
+def test_main_timeout_and_all(capsys: pytest.CaptureFixture[str]) -> None:
+    mock_offer = DHCPOffer(server_ip="10.1.1.1", server_mac="00:11:22:33:44:55", offered_ip="10.1.1.50")
+    with (
+        patch.object(dhcpt_mod, "get_interface_diagnostics", return_value={"exists": True, "operstate": "up"}),
+        patch.object(dhcpt_mod, "get_if_hwaddr", return_value="00:11:22:33:44:55"),
+        patch.object(dhcpt_mod, "send_and_receive_dhcp", return_value=[mock_offer]) as mock_send,
+    ):
+        exit_code = main(["-i", "eth0", "--timeout", "4.5", "--all"])
+        assert exit_code == 0
+        assert mock_send.call_args.kwargs.get("timeout") == 4.5
+        assert mock_send.call_args.kwargs.get("listen_all") is True
+
+
+def test_main_json_output(capsys: pytest.CaptureFixture[str]) -> None:
+    mock_offer = DHCPOffer(server_ip="10.1.1.1", server_mac="00:11:22:33:44:55", offered_ip="10.1.1.50")
+    with (
+        patch.object(dhcpt_mod, "get_interface_diagnostics", return_value={"exists": True, "operstate": "up"}),
+        patch.object(dhcpt_mod, "get_if_hwaddr", return_value="00:11:22:33:44:55"),
+        patch.object(dhcpt_mod, "send_and_receive_dhcp", return_value=[mock_offer]),
+    ):
+        exit_code = main(["-i", "eth0", "--json"])
+        assert exit_code == 0
+        captured = capsys.readouterr()
+        data = json.loads(captured.out)
+        assert data["interface"] == "eth0"
+        assert data["offers_count"] == 1
+        assert data["offers"][0]["server_ip"] == "10.1.1.1"
+
+
+def test_bash_runtime_tab_completion() -> None:
+    import shutil
+    import subprocess
+
+    bash_bin = shutil.which("bash")
+    if not bash_bin:
+        pytest.skip("bash not found")
+
+    zsh_comp_path = Path("completions/bash/dhcpt").resolve()
+    script = f"""
+source "{zsh_comp_path}"
+COMP_WORDS=(dhcpt --)
+COMP_CWORD=1
+cur="--"
+prev="dhcpt"
+_dhcpt_bash
+echo "${{COMPREPLY[*]}}"
+"""
+    res = subprocess.run([bash_bin, "-c", script], capture_output=True, text=True, check=True)
+    completions = res.stdout.strip().split()
+    assert "--target-gateway" in completions
+    assert "--interface" in completions
+    assert "--timeout" in completions
+
+
+def test_zsh_runtime_tab_completion() -> None:
+    import os
+    import pty
+    import select
+    import shutil
+    import subprocess
+
+    zsh_bin = shutil.which("zsh")
+    if not zsh_bin:
+        pytest.skip("zsh not found")
+
+    zsh_comp_path = Path("completions/zsh/_dhcpt").resolve()
+
+    master, slave = pty.openpty()
+    proc = subprocess.Popen([zsh_bin, "-f"], stdin=slave, stdout=slave, stderr=slave, close_fds=True)
+    os.close(slave)
+
+    def send(cmd: str) -> None:
+        os.write(master, cmd.encode("utf-8") + b"\n")
+
+    send("autoload -Uz compinit && compinit -D -u")
+    send(f'source "{zsh_comp_path}"')
+    send("compdef _dhcpt dhcpt")
+    # Simulate typing 'dhcpt <TAB>' in an interactive terminal
+    os.write(master, b"dhcpt \t")
+    send("")
+    send("exit")
+
+    output = b""
+    while True:
+        r, _, _ = select.select([master], [], [], 1.5)
+        if not r:
+            break
+        try:
+            data = os.read(master, 1024)
+            if not data:
+                break
+            output += data
+        except OSError:
+            break
+
+    os.close(master)
+    proc.wait()
+    out = output.decode("utf-8", errors="replace")
+
+    assert "_arguments:" not in out, f"Zsh _arguments error found: {out}"
+    assert "comparguments:" not in out, f"Zsh comparguments error found: {out}"
+    assert "invalid argument" not in out, f"Zsh syntax error found: {out}"
