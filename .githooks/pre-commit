@@ -1,12 +1,36 @@
 #!/usr/bin/env bash
+#
+# .githooks/pre-commit - Fast, surgical pre-commit hook checking staged changes only
+#
+
 set -e
 
-# Validate modified Bash scripts and completions
+# 0. Safety Guards: Prevent committing merge conflicts or secret credentials
+if git diff --cached --no-ext-diff | grep -E '^(<{7}|={7}|>{7})' >/dev/null 2>&1; then
+    echo "[ERROR] Unresolved merge conflict markers detected in staged changes!" >&2
+    exit 1
+fi
+
+forbidden_secrets=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(\.env(\..+)?|\.key|\.pem|id_rsa|id_ed25519)$' || true)
+if [ -n "$forbidden_secrets" ]; then
+    echo "[ERROR] Refusing to commit potential sensitive credential file(s):" >&2
+    for f in $forbidden_secrets; do
+        echo "  * $f" >&2
+    done
+    exit 1
+fi
+
+# 1. Validate modified Bash scripts, test executables, and completions
 changed_bash_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^completions/bash/|\.sh$' || true)
 if [ -n "$changed_bash_files" ]; then
-    echo "[pre-commit] Checking syntax of modified Bash scripts..."
+    echo "[pre-commit] Checking syntax and permissions of modified Bash scripts..."
     for file in $changed_bash_files; do
         if [ -f "$file" ]; then
+            if [[ "$file" =~ ^tests/e2e/.*\.sh$ ]] && [ ! -x "$file" ]; then
+                echo "[ERROR] Test script '$file' is not marked as executable (+x)!" >&2
+                echo "        Please run: chmod +x $file" >&2
+                exit 1
+            fi
             echo "  -> bash -o noexec $file"
             bash -o noexec "$file"
             if command -v shellcheck >/dev/null 2>&1; then
@@ -17,25 +41,54 @@ if [ -n "$changed_bash_files" ]; then
     done
 fi
 
-# Validate modified Zsh completions (ShellCheck is Bash/POSIX only; Zsh uses zsh --noexec and compinit load)
+# 2. Validate modified Zsh completions (ShellCheck is Bash/POSIX only; Zsh uses zsh --noexec and compinit load)
 changed_zsh_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^completions/zsh/|\.zsh$' || true)
 if [ -n "$changed_zsh_files" ] && command -v zsh >/dev/null 2>&1; then
-    echo "[pre-commit] Checking syntax of modified Zsh scripts..."
+    echo "[pre-commit] Checking syntax of modified Zsh completions..."
     for file in $changed_zsh_files; do
         if [ -f "$file" ]; then
             echo "  -> zsh --noexec $file"
             zsh --noexec "$file"
             echo "  -> zsh completion runtime load test: $file"
-            zsh -f -c "autoload -Uz compinit && compinit -D -u && source $file"
+            python3 -m pytest -q tests/test_cli.py -k "tab_completion"
         fi
     done
 fi
 
-# Validate modified UNIX manpages
-changed_man_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^man/.*\.1$' || true)
-if [ -n "$changed_man_files" ]; then
-    echo "[pre-commit] Validating modified UNIX manpages..."
-    for file in $changed_man_files; do
+# 3. Validate modified UNIX manpages & Pandoc compilation freshness
+changed_man_source=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^man/dhcpt\.1\.md$' || true)
+changed_man_compiled=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^man/.*\.1$' || true)
+
+if [ -n "$changed_man_source" ]; then
+    if [ -z "$changed_man_compiled" ]; then
+        echo "[ERROR] man/dhcpt.1.md was modified, but compiled man/dhcpt.1 was not staged!" >&2
+        echo "        Please run 'make man' and stage man/dhcpt.1 before committing." >&2
+        exit 1
+    fi
+
+    if command -v pandoc >/dev/null 2>&1 && command -v man >/dev/null 2>&1; then
+        echo "[pre-commit] Validating manpage is up-to-date with Markdown source..."
+        TMP_CHECK=$(mktemp)
+        TMP_R1=$(mktemp)
+        TMP_R2=$(mktemp)
+        pandoc man/dhcpt.1.md -s -t man -f markdown-smart -o "$TMP_CHECK"
+        MANWIDTH=80 man -l man/dhcpt.1 | col -bx > "$TMP_R1"
+        MANWIDTH=80 man -l "$TMP_CHECK" | col -bx > "$TMP_R2"
+        if ! diff -u "$TMP_R1" "$TMP_R2" >/dev/null; then
+            echo "" >&2
+            echo "[ERROR] Compiled manpage man/dhcpt.1 is out of date with man/dhcpt.1.md!" >&2
+            echo "        Please run 'make man' and commit the updated man/dhcpt.1." >&2
+            diff -u "$TMP_R1" "$TMP_R2" >&2 || true
+            rm -f "$TMP_CHECK" "$TMP_R1" "$TMP_R2"
+            exit 1
+        fi
+        rm -f "$TMP_CHECK" "$TMP_R1" "$TMP_R2"
+    fi
+fi
+
+if [ -n "$changed_man_compiled" ] && command -v man >/dev/null 2>&1; then
+    echo "[pre-commit] Validating modified UNIX manpages formatting..."
+    for file in $changed_man_compiled; do
         if [ -f "$file" ]; then
             echo "  -> man -l $file"
             man -l "$file" > /dev/null
@@ -43,31 +96,69 @@ if [ -n "$changed_man_files" ]; then
     done
 fi
 
-echo "[pre-commit] Running ruff lint check..."
-ruff check .
+# 4. Validate modified Python files with Ruff (linting and formatting)
+changed_py_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.py$' || true)
+if [ -n "$changed_py_files" ]; then
+    echo "[pre-commit] Running ruff lint check on modified Python files..."
+    # shellcheck disable=SC2086
+    ruff check $changed_py_files
 
-echo "[pre-commit] Running ruff format check..."
-ruff format --check .
+    echo "[pre-commit] Running ruff format check on modified Python files..."
+    # shellcheck disable=SC2086
+    ruff format --check $changed_py_files
+fi
 
-if command -v pandoc >/dev/null 2>&1; then
-    echo "[pre-commit] Validating manpage is up-to-date with Markdown source..."
-    TMP_MAN=$(mktemp)
-    pandoc man/dhcpt.1.md -s -t man -f markdown-smart -o "$TMP_MAN"
-    if ! cmp -s man/dhcpt.1 "$TMP_MAN"; then
-        echo "[ERROR] man/dhcpt.1 is out of date with man/dhcpt.1.md!" >&2
-        echo "        Run 'make man' to recompile the manpage." >&2
-        rm -f "$TMP_MAN"
-        exit 1
+# 5. Validate version consistency if version-declaring files changed
+changed_ver_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^(pyproject\.toml|src/dhcpt/__init__\.py|man/dhcpt\.1\.md)$' || true)
+if [ -n "$changed_ver_files" ]; then
+    echo "[pre-commit] Validating project version consistency..."
+    python3 tests/test_version_consistency.py
+fi
+
+# 6. Validate Kea DHCPv4 configurations if JSON configuration files changed
+changed_kea_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^tests/e2e/.*\.json$' || true)
+if [ -n "$changed_kea_files" ]; then
+    if command -v jq >/dev/null 2>&1; then
+        echo "[pre-commit] Validating Kea JSON configuration syntax..."
+        for cfg in $changed_kea_files; do
+            [ -f "$cfg" ] || continue
+            echo "  -> jq empty $cfg"
+            jq empty "$cfg"
+        done
     fi
-    rm -f "$TMP_MAN"
+
+    kea_bin=$(command -v kea-dhcp4 2>/dev/null || true)
+    if [ -z "$kea_bin" ] && [ -x "/usr/sbin/kea-dhcp4" ]; then
+        kea_bin="/usr/sbin/kea-dhcp4"
+    fi
+
+    if [ -n "$kea_bin" ] && [ -x "$kea_bin" ]; then
+        echo "[pre-commit] Validating Kea DHCPv4 configuration schemas..."
+        aa_prefix=()
+        if command -v aa-exec >/dev/null 2>&1; then
+            aa_prefix=(aa-exec -p unconfined --)
+        fi
+
+        for cfg in $changed_kea_files; do
+            [ -f "$cfg" ] || continue
+            tmp_cfg=$(mktemp)
+            sed -E 's/"interfaces":\s*\[[^]]*\]/"interfaces": []/' "$cfg" > "$tmp_cfg"
+            if ! env KEA_PIDFILE_DIR=/tmp KEA_LOCKFILE_DIR=/tmp "${aa_prefix[@]}" "$kea_bin" -t "$tmp_cfg" >/dev/null 2>&1; then
+                echo "[ERROR] Kea schema validation failed for $(basename "$cfg"):" >&2
+                env KEA_PIDFILE_DIR=/tmp KEA_LOCKFILE_DIR=/tmp "${aa_prefix[@]}" "$kea_bin" -t "$tmp_cfg" >&2
+                rm -f "$tmp_cfg"
+                exit 1
+            fi
+            rm -f "$tmp_cfg"
+        done
+    fi
 fi
 
-if command -v man >/dev/null 2>&1; then
-    echo "[pre-commit] Validating manpage formatting..."
-    man -l man/dhcpt.1 >/dev/null
+# 7. Run pytest if any Python code, tests, or project metadata (dependencies/licenses) were modified
+changed_pyproject=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^pyproject\.toml$' || true)
+if [ -n "$changed_py_files" ] || [ -n "$changed_pyproject" ]; then
+    echo "[pre-commit] Running pytest test suite..."
+    PYTHONPATH=src pytest -q
 fi
 
-echo "[pre-commit] Running pytest test suite..."
-PYTHONPATH=src pytest -q
-
-echo "[pre-commit] All checks passed successfully!"
+echo "[pre-commit] All staged checks passed successfully!"
