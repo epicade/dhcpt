@@ -776,19 +776,29 @@ def get_mac_for_ip(ip: str, iface: str, resolve_active: bool = True) -> str | No
     return None
 
 
-def get_route_egress_interface(ip: str) -> str | None:
-    """Determine Linux kernel egress network interface for a target IP address.
+@dataclass
+class RouteInfo:
+    """Linux kernel FIB route resolution details for a destination IP."""
 
-    Queries the kernel FIB routing lookup using 'ip route get <ip>' to accurately
-    resolve which network interface would carry traffic to the given destination,
-    properly accounting for VRFs, metrics, and policy routing. Falls back to Scapy's
-    internal routing table if the system 'ip' utility is unavailable.
+    interface: str | None = None
+    gateway: str | None = None
+    src_ip: str | None = None
+
+
+def get_route_for_ip(ip: str) -> RouteInfo:
+    """Query Linux kernel FIB route lookup for a destination IP.
+
+    Queries kernel routing using 'ip route get <ip>' to accurately resolve the
+    egress network interface, next-hop gateway (if routed via router/switch),
+    and preferred source IP address. Correctly accounts for policy routing,
+    static routes, metrics, and VRFs. Falls back to Scapy's internal routing table
+    if the system 'ip' utility is unavailable.
 
     Args:
         ip: Target destination IPv4 or IPv6 address string.
 
     Returns:
-        Interface name string (e.g. 'eth0', 'wg0', 'tun-client') if resolvable, or None.
+        RouteInfo dataclass with interface, gateway, and src_ip fields.
     """
     # 1. Primary resolution: invoke Linux 'ip route get <ip>' for true FIB / VRF lookup
     try:
@@ -800,9 +810,15 @@ def get_route_egress_interface(ip: str) -> str | None:
             timeout=2.0,
         )
         if res.returncode == 0:
-            match = re.search(r"\bdev\s+(\S+)", res.stdout)
-            if match:
-                return match.group(1).strip()
+            out = res.stdout
+            dev_m = re.search(r"\bdev\s+(\S+)", out)
+            via_m = re.search(r"\bvia\s+(\S+)", out)
+            src_m = re.search(r"\bsrc\s+(\S+)", out)
+            return RouteInfo(
+                interface=dev_m.group(1).strip() if dev_m else None,
+                gateway=via_m.group(1).strip() if via_m else None,
+                src_ip=src_m.group(1).strip() if src_m else None,
+            )
     except (OSError, subprocess.SubprocessError):
         pass
 
@@ -813,12 +829,27 @@ def get_route_egress_interface(ip: str) -> str | None:
 
             if hasattr(conf, "route") and conf.route is not None:
                 rt = conf.route.route(ip)
-                if rt and rt[0]:
-                    return str(rt[0])
+                if rt:
+                    dev = str(rt[0]) if rt[0] else None
+                    gw = str(rt[1]) if rt[1] and str(rt[1]) != "0.0.0.0" else None
+                    src = str(rt[2]) if len(rt) > 2 and rt[2] and str(rt[2]) != "0.0.0.0" else None
+                    return RouteInfo(interface=dev, gateway=gw, src_ip=src)
         except Exception:
             pass
 
-    return None
+    return RouteInfo()
+
+
+def get_route_egress_interface(ip: str) -> str | None:
+    """Determine Linux kernel egress network interface for a target IP address.
+
+    Args:
+        ip: Target destination IPv4 or IPv6 address string.
+
+    Returns:
+        Interface name string (e.g. 'eth0', 'wg0', 'tun-client') if resolvable, or None.
+    """
+    return get_route_for_ip(ip).interface
 
 
 def is_layer3_interface(interface: str) -> bool:
@@ -1177,13 +1208,19 @@ def send_and_receive_dhcp(
         for idx, server_ip in enumerate(servers):
             server_mac = "ff:ff:ff:ff:ff:ff"
             if not is_l3:
-                server_mac = get_mac_for_ip(server_ip, interface) or gw_mac
+                route_info = get_route_for_ip(server_ip)
+                target_for_mac = route_info.gateway if route_info.gateway else server_ip
+                server_mac = (
+                    get_mac_for_ip(target_for_mac, interface)
+                    or (get_mac_for_ip(server_ip, interface) if route_info.gateway else None)
+                    or gw_mac
+                )
                 if not server_mac:
                     LOGGER.warning(
                         "Could not resolve Layer 2 MAC address for server %s or gateway %s on '%s'. "
                         "Falling back to broadcast MAC (ff:ff:ff:ff:ff:ff), which switches/routers may drop.",
                         server_ip,
-                        gw_ip or "<unknown>",
+                        route_info.gateway or gw_ip or "<unknown>",
                         interface,
                     )
                     server_mac = "ff:ff:ff:ff:ff:ff"
@@ -1538,11 +1575,9 @@ Documentation & Relay Mechanics:
 
     relay_group = parser.add_argument_group("DHCP Relay & IP-Helper Simulation")
     relay_group.add_argument(
-        "--dhcp-servers",
-        "--dhcp-server",
         "-s",
-        "--server",
-        "--servers",
+        "--dhcp-server",
+        "--dhcp-servers",
         dest="servers",
         type=str,
         default=None,
@@ -1550,13 +1585,27 @@ Documentation & Relay Mechanics:
         help="Target one or more remote DHCP servers directly via unicast (comma-separated). Corresponds to ip helper-address target on routers/switches.",
     )
     relay_group.add_argument(
+        "--server",
+        "--servers",
+        dest="servers",
+        type=str,
+        default=None,
+        help=argparse.SUPPRESS,
+    )
+    relay_group.add_argument(
         "--target-gateway",
-        "--relay-subnet",
         dest="relay_subnet",
         type=str,
         default=None,
         metavar="GATEWAY_IP",
         help="Simulate originating from a remote subnet by specifying the gateway IP defined for that pool in the DHCP server configuration (RFC 3527 Link Selection). Instructs the server which pool to allocate from while routing replies back to the tester.",
+    )
+    relay_group.add_argument(
+        "--relay-subnet",
+        dest="relay_subnet",
+        type=str,
+        default=None,
+        help=argparse.SUPPRESS,
     )
     relay_group.add_argument(
         "--circuit-id",
@@ -1851,6 +1900,12 @@ def install_agent_skill(target: str = "all", force: bool = False) -> int:
         print("Error: Skill definition file (SKILL.md) not found.", file=sys.stderr)
         return 1
 
+    if target != "all" and target not in AGENT_SKILL_TARGETS:
+        msg = f"Error: Unknown assistant target '{target}'. Supported targets: all, {', '.join(sorted(AGENT_SKILL_TARGETS))}."
+        LOGGER.error("%s", msg)
+        print(msg, file=sys.stderr)
+        return 1
+
     if target == "all":
         # Only install for agents that are actually installed or configured on the system
         selected_keys = [k for k in AGENT_SKILL_TARGETS if is_agent_present(k)]
@@ -1899,6 +1954,21 @@ def _run(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     setup_logging(debug=args.debug, verbose=args.verbose)
+
+    raw_args = list(sys.argv[1:] if argv is None else argv)
+    if any(arg in ("--server", "--servers") or arg.startswith(("--server=", "--servers=")) for arg in raw_args):
+        warn_msg = (
+            "Option '--server' / '--servers' is deprecated and will be removed in a future release. "
+            "Please use '-s' / '--dhcp-server' / '--dhcp-servers' instead."
+        )
+        print(f"dhcpt: warning: {warn_msg}", file=sys.stderr)
+
+    if any(arg == "--relay-subnet" or arg.startswith("--relay-subnet=") for arg in raw_args):
+        warn_msg = (
+            "Option '--relay-subnet' is deprecated and will be removed in a future release. "
+            "Please use '--target-gateway' instead."
+        )
+        print(f"dhcpt: warning: {warn_msg}", file=sys.stderr)
 
     if args.install_skill:
         return install_agent_skill(args.install_skill, force=args.force)
