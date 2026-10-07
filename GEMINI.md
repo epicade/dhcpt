@@ -99,7 +99,7 @@ For verifying raw socket packet crafting, kernel routing, and DHCP options again
   Spins up isolated namespaces (`workstation`, `vpn-gw`, `dhcp-server`, `dhcp-rogue`), a Linux bridge (`br-dhcpt`), and launches legitimate and rogue Kea servers with 100% host isolation.
 - **Run Live Test Suites:**
   ```bash
-  make e2e
+  make testbed-run
   ```
   Executes all modular test suites under `tests/e2e/suites/` (Broadcast, MAC reservations, unicast relays, L3 tunnels, timeouts, rogue detection).
 - **Check Status & Live Logs:**

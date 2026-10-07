@@ -264,7 +264,7 @@ make man
 
 # 5. Run live network testbed in isolated namespaces:
 make testbed-start
-make e2e
+make testbed-run
 make testbed-stop
 ```
 
