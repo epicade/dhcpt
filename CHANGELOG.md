@@ -9,7 +9,8 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 ---
 
 ### New
-* Add live Kea DHCPv4 end-to-end testbed and automated lease-safety verification (make e2e)
+* Add empirical 20-cycle pool exhaustion stress test to lease-safety verification suite
+* Add live Kea DHCPv4 end-to-end testbed and automated lease-safety verification (make testbed-run)
 * Add automated legal compliance test suite (tests/test_license_compliance.py) verifying GPL-2.0-or-later licensing and guarding against Apache-2.0 runtime dependencies
 * Add Linux kernel FIB route egress validation (get_route_egress_interface) on Layer 3 interfaces and warn on device mismatch
 * Require explicit target DHCP servers (-s/--dhcp-servers) on Layer 3 interfaces and abort immediately with exit code 2 if omitted
@@ -25,6 +26,10 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 * Add UNIX manpage dhcpt(1) with shared-data installation for pipx and Linux package managers
 
 ### Changes
+* Unify Makefile target naming under testbed-run and testbed-shell, and group help synopsis
+* Consolidate kernel routing and next-hop gateway resolution via ip route get (get_route_for_ip)
+* Deprecate --server / --servers in favor of -s / --dhcp-server / --dhcp-servers and --relay-subnet in favor of --target-gateway
+* Streamline developer Makefile and automatically configure Git pre-commit hooks in make install-dev
 * Document installation workflows for latest stable release tags (with automated tag discovery) vs bleeding-edge development (main branch)
 * Simplify documentation and manpage into clear, jargon-free plain language with short sentences
 * Document Netcat UDP port 67 diagnostic reachability verification workflow in manpage, skill, and README
@@ -43,6 +48,8 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 * Replace README reference in --help with 'man dhcpt' and GitHub documentation URL
 
 ### Fixes
+* Add defensive target validation to --install-skill to prevent unhandled KeyError
+* Resolve remote DHCP server next-hop MAC address on Layer 2 interfaces when reached via static route
 * Differentiate Layer 2 and Layer 3 raw socket error messages and preserve CLI arguments in sudo recommendation
 * Resolve Zsh completion syntax error on --target-gateway and add runtime tab-completion test
 * Resolve decoding of RFC 3442 Classless Static Routes (Option 121) from Scapy string representations
