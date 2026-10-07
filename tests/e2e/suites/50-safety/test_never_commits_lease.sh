@@ -156,5 +156,48 @@ if [ -n "$FORBIDDEN" ]; then
     exit 1
 fi
 
+# -----------------------------------------------------------------------------
+# Phase 3: Pool Exhaustion Stress Test (Empirical Zero-Lease-Consumption Proof)
+# -----------------------------------------------------------------------------
+# We query subnet 6 (10.42.0.0/24) via RFC 3527 Link Selection (--target-gateway 10.42.0.1).
+# The pool only contains 5 IP addresses (10.42.0.10 - 10.42.0.14).
+# We execute dhcpt 20 times sequentially with 20 distinct MAC addresses.
+# If dhcpt committed any leases or held addresses, the pool would deplete after 5
+# runs, and subsequent executions would fail (timeout/no offer).
+# Receiving successful offers on all 20 runs mathematically proves zero allocation.
+
+BL_STRESS=$(wc -l < "$LOG_FILE_LEGIT")
+
+STRESS_COUNT=20
+for idx in $(seq 1 $STRESS_COUNT); do
+    TEST_MAC=$(printf "02:42:00:00:00:%02x" "$idx")
+    if ! $DHCPT -i "$IFACE" -s "${DHCP_SERVER_LEGIT_IP:-10.99.0.1}" --target-gateway 10.42.0.1 --mac "$TEST_MAC" -t 2 >/dev/null; then
+        echo "  [FAIL] Pool exhaustion stress test failed at iteration ${idx}/${STRESS_COUNT}!" >&2
+        echo "         Address pool (5 IPs) was unexpectedly exhausted, proving leases were consumed." >&2
+        exit 1
+    fi
+done
+
+sleep 0.1
+AL_STRESS=$(wc -l < "$LOG_FILE_LEGIT")
+
+STRESS_LOGS=$(sed -n "$((BL_STRESS + 1)),${AL_STRESS}p" "$LOG_FILE_LEGIT")
+STRESS_DISCOVERS=$(echo "$STRESS_LOGS" | grep -c "DHCPDISCOVER" || true)
+STRESS_OFFERS=$(echo "$STRESS_LOGS" | grep -c "DHCP4_LEASE_OFFER" || true)
+STRESS_FORBIDDEN=$(echo "$STRESS_LOGS" | grep -E "DHCPREQUEST|DHCP4_LEASE_ALLOC|DHCP4_LEASE_REUSE|DHCPACK" || true)
+
+if [ "$STRESS_DISCOVERS" -lt "$STRESS_COUNT" ] || [ "$STRESS_OFFERS" -lt "$STRESS_COUNT" ]; then
+    echo "  [FAIL] Stress test did not capture expected traffic (${STRESS_DISCOVERS} discovers, ${STRESS_OFFERS} offers, expected >= ${STRESS_COUNT})!" >&2
+    exit 1
+fi
+
+if [ -n "$STRESS_FORBIDDEN" ]; then
+    echo "  [FAIL] Lease commitment detected during pool exhaustion stress test!" >&2
+    while IFS= read -r line; do
+        echo "           $line" >&2
+    done <<< "$STRESS_FORBIDDEN"
+    exit 1
+fi
+
 # Success: all assertions satisfied
 exit 0
