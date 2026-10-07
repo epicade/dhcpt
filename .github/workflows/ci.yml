@@ -83,8 +83,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install testbed system packages via Makefile (make testbed-install)
-        run: sudo make testbed-install
+      - name: Install testbed system packages via Makefile (make install-testbed)
+        run: sudo make install-testbed
 
       - name: Install dhcpt globally via make install
         run: sudo make install

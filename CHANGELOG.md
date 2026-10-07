@@ -26,7 +26,7 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 * Add UNIX manpage dhcpt(1) with shared-data installation for pipx and Linux package managers
 
 ### Changes
-* Separate lightweight linting tools from heavy live testbed packages via make testbed-install
+* Separate lightweight linting tools from heavy live testbed packages via make install-testbed
 * Unify Makefile target naming under testbed-run and testbed-shell, and group help synopsis
 * Consolidate kernel routing and next-hop gateway resolution via ip route get (get_route_for_ip)
 * Deprecate --server / --servers in favor of -s / --dhcp-server / --dhcp-servers and --relay-subnet in favor of --target-gateway
