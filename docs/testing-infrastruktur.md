@@ -25,7 +25,7 @@ To guarantee that `dhcpt` works in production, we run live tests against real **
 * **Two Test Layers:**
   * **Unit Tests (`pytest`):** Run in ~2 seconds without root privileges.
     They check CLI arguments, option encoding, and data models.
-  * **Live E2E Tests (`make e2e`):** Run against active DHCP servers.
+  * **Live E2E Tests (`make testbed-run`):** Run against active DHCP servers.
     They verify real packet exchange over Layer 2 and Layer 3.
 * **Realistic Topology:** Simulates enterprise networks with VPN tunnels, routers, and redundant DHCP servers.
 
@@ -273,7 +273,7 @@ make testbed-start
 make testbed-status
 
 # 3. Run all live E2E test suites:
-make e2e
+make testbed-run
 
 # 4. Stop the testbed and clean up namespaces:
 make testbed-stop
@@ -285,16 +285,16 @@ Enter any namespace with convenient Makefile commands:
 
 ```bash
 # Open bash inside the client workstation:
-make testbed-workstation
+make testbed-shell NS=workstation
 
 # Open bash inside the VPN gateway router:
-make testbed-vpn-gw
+make testbed-shell NS=vpn-gw
 
 # Open bash inside the legitimate DHCP server:
-make testbed-server
+make testbed-shell NS=server
 
 # Open bash inside the rogue server:
-make testbed-rogue
+make testbed-shell NS=rogue
 ```
 
 ### Inspect Live Logs and Packets
@@ -331,5 +331,5 @@ In GitHub Actions:
 4. Verify your script with linters and run the test:
    ```bash
    make lint
-   make e2e
+   make testbed-run
    ```

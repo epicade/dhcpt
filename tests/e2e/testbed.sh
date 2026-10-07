@@ -78,7 +78,7 @@ start_testbed() {
     # If the testbed is already fully running and healthy, inform user and exit cleanly
     if is_testbed_running; then
         echo -e "${C_YELLOW}[INFO]${C_RESET} Testbed is already running and active."
-        echo "       Run 'make e2e' to execute test suites, or 'make testbed-stop' to stop."
+        echo "       Run 'make testbed-run' to execute test suites, or 'make testbed-stop' to stop."
         exit 0
     fi
 
@@ -242,17 +242,17 @@ start_testbed() {
         echo "                            tail --follow ${LOG_FILE_ROGUE}"
         echo ""
         echo -e "${C_GREEN}[OK]${C_RESET} Interactive Shell Access (Network Namespaces):"
-        echo "     * Enter Workstation  : make testbed-workstation (or: sudo $0 shell workstation)"
-        echo "     * Enter VPN Gateway  : make testbed-vpn-gw      (or: sudo $0 shell vpn-gw)"
-        echo "     * Enter Server       : make testbed-server      (or: sudo $0 shell server)"
-        echo "     * Enter Rogue        : make testbed-rogue       (or: sudo $0 shell rogue)"
+        echo "     * Enter Workstation  : make testbed-shell (or: sudo $0 shell workstation)"
+        echo "     * Enter VPN Gateway  : make testbed-shell NS=vpn-gw"
+        echo "     * Enter Server       : make testbed-shell NS=server"
+        echo "     * Enter Rogue        : make testbed-shell NS=rogue"
         echo ""
         echo -e "${C_GREEN}[OK]${C_RESET} Direct Testing from Host:"
         echo "       sudo ip netns exec workstation dhcpt --interface veth-client"
         echo "       sudo ip netns exec workstation dhcpt --interface tun-client --dhcp-servers 10.77.0.1 --target-gateway 10.50.1.1"
         echo ""
         echo -e "${C_GREEN}[OK]${C_RESET} Automated Testing:"
-        echo "     Run all automated tests : make e2e"
+        echo "     Run all automated tests : make testbed-run"
         echo "     Check testbed status    : make testbed-status"
         echo "     Stop and clean testbed  : make testbed-stop"
         echo -e "${C_BOLD}================================================================================${C_RESET}"
@@ -367,10 +367,10 @@ status_testbed() {
         echo "  * Rogue      : tail --follow ${LOG_FILE_ROGUE}"
         echo ""
         echo -e "${C_GREEN}[OK]${C_RESET} Shell Access (Namespaces):"
-        echo "  * Workstation: make testbed-workstation (or: sudo $0 shell workstation)"
-        echo "  * VPN Gateway: make testbed-vpn-gw      (or: sudo $0 shell vpn-gw)"
-        echo "  * Server     : make testbed-server      (or: sudo $0 shell server)"
-        echo "  * Rogue      : make testbed-rogue       (or: sudo $0 shell rogue)"
+        echo "  * Workstation: make testbed-shell (or: sudo $0 shell workstation)"
+        echo "  * VPN Gateway: make testbed-shell NS=vpn-gw"
+        echo "  * Server     : make testbed-shell NS=server"
+        echo "  * Rogue      : make testbed-shell NS=rogue"
     elif [ "$ns_count" -eq 0 ] && [ "$legit_running" -eq 0 ] && [ "$rogue_running" -eq 0 ]; then
         echo -e "${C_YELLOW}[STATUS] Testbed is INACTIVE (stopped).${C_RESET}"
         echo "  Start with: make testbed-start"
