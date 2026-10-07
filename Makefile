@@ -1,4 +1,4 @@
-.PHONY: help install install-dev check test lint format testbed-start testbed-stop testbed-status testbed-run testbed-shell man clean
+.PHONY: help install install-dev check test lint format testbed-install testbed-start testbed-stop testbed-status testbed-run testbed-shell man clean
 
 PYTHON ?= python3
 SUDO   ?= $(shell if [ "$$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then echo "sudo"; fi)
@@ -20,35 +20,22 @@ install:  ## Install package globally via pipx for production use
 	fi
 	@echo "[OK] dhcpt installed globally into /usr/local/bin/dhcpt!"
 
-install-dev:  ## Set up full development environment (system packages, git hooks, editable pip, dev symlinks)
-	@echo "==> Checking development system packages..."
+install-dev:  ## Set up development environment (lint tools, git hooks, editable pip, dev symlinks)
+	@echo "==> Checking development system packages (pandoc, shellcheck, man)..."
 	@PKGS=""; \
 	command -v pandoc >/dev/null 2>&1 || PKGS="$$PKGS pandoc"; \
 	command -v shellcheck >/dev/null 2>&1 || PKGS="$$PKGS shellcheck"; \
 	command -v man >/dev/null 2>&1 || PKGS="$$PKGS man-db groff"; \
-	command -v jq >/dev/null 2>&1 || PKGS="$$PKGS jq"; \
-	command -v busybox >/dev/null 2>&1 || PKGS="$$PKGS busybox"; \
-	command -v zsh >/dev/null 2>&1 || PKGS="$$PKGS zsh"; \
-	if command -v apt-get >/dev/null 2>&1; then \
-		dpkg -s kea-dhcp4-server >/dev/null 2>&1 || PKGS="$$PKGS kea-dhcp4-server"; \
-		dpkg -s python3-scapy >/dev/null 2>&1 || PKGS="$$PKGS python3-scapy"; \
-		if [ -n "$$PKGS" ]; then \
+	if [ -n "$$PKGS" ]; then \
+		if command -v apt-get >/dev/null 2>&1; then \
 			echo "Installing missing development tools via apt-get:$$PKGS"; \
 			DEBIAN_FRONTEND=noninteractive $(SUDO) apt-get update && DEBIAN_FRONTEND=noninteractive $(SUDO) apt-get install -y --no-install-recommends $$PKGS; \
-		fi; \
-	elif command -v dnf >/dev/null 2>&1; then \
-		rpm -q kea >/dev/null 2>&1 || PKGS="$$PKGS kea"; \
-		rpm -q python3-scapy >/dev/null 2>&1 || PKGS="$$PKGS python3-scapy"; \
-		if [ -n "$$PKGS" ]; then \
+		elif command -v dnf >/dev/null 2>&1; then \
 			echo "Installing missing development tools via dnf:$$PKGS"; \
-			$(SUDO) dnf install -y epel-release 2>/dev/null || true; \
 			$(SUDO) dnf install -y $$PKGS; \
-		fi; \
-	elif command -v pacman >/dev/null 2>&1; then \
-		pacman -Qi kea >/dev/null 2>&1 || PKGS="$$PKGS kea"; \
-		if [ -n "$$PKGS" ]; then \
+		elif command -v pacman >/dev/null 2>&1; then \
 			echo "Installing missing development tools via pacman:$$PKGS"; \
-			$(SUDO) pacman -S --needed --noconfirm $$PKGS python-scapy; \
+			$(SUDO) pacman -S --needed --noconfirm $$PKGS; \
 		fi; \
 	fi
 	@echo "==> Configuring Git pre-commit hooks..."
@@ -109,6 +96,36 @@ format:  ## Automatically format code with ruff
 	ruff format .
 
 ##@ Live Network Testbed
+
+testbed-install:  ## Install system packages for live Kea testbed (Kea, Scapy, Jq, Busybox)
+	@echo "==> Checking and installing live Kea testbed system packages..."
+	@PKGS=""; \
+	command -v jq >/dev/null 2>&1 || PKGS="$$PKGS jq"; \
+	command -v busybox >/dev/null 2>&1 || PKGS="$$PKGS busybox"; \
+	command -v zsh >/dev/null 2>&1 || PKGS="$$PKGS zsh"; \
+	if command -v apt-get >/dev/null 2>&1; then \
+		dpkg -s kea-dhcp4-server >/dev/null 2>&1 || PKGS="$$PKGS kea-dhcp4-server"; \
+		dpkg -s python3-scapy >/dev/null 2>&1 || PKGS="$$PKGS python3-scapy"; \
+		if [ -n "$$PKGS" ]; then \
+			echo "Installing testbed packages via apt-get:$$PKGS"; \
+			DEBIAN_FRONTEND=noninteractive $(SUDO) apt-get update && DEBIAN_FRONTEND=noninteractive $(SUDO) apt-get install -y --no-install-recommends $$PKGS; \
+		fi; \
+	elif command -v dnf >/dev/null 2>&1; then \
+		rpm -q kea >/dev/null 2>&1 || PKGS="$$PKGS kea"; \
+		rpm -q python3-scapy >/dev/null 2>&1 || PKGS="$$PKGS python3-scapy"; \
+		if [ -n "$$PKGS" ]; then \
+			echo "Installing testbed packages via dnf:$$PKGS"; \
+			$(SUDO) dnf install -y epel-release 2>/dev/null || true; \
+			$(SUDO) dnf install -y $$PKGS; \
+		fi; \
+	elif command -v pacman >/dev/null 2>&1; then \
+		pacman -Qi kea >/dev/null 2>&1 || PKGS="$$PKGS kea"; \
+		if [ -n "$$PKGS" ]; then \
+			echo "Installing testbed packages via pacman:$$PKGS"; \
+			$(SUDO) pacman -S --needed --noconfirm $$PKGS python-scapy; \
+		fi; \
+	fi
+	@echo "[OK] Live testbed system packages ready!"
 
 testbed-run:  ## Run live network test suites against active Kea testbed
 	@$(SUDO) tests/e2e/testbed.sh run
