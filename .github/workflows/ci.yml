@@ -83,8 +83,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install testbed system and python dependencies via Makefile (make install-dev)
-        run: sudo make install-dev
+      - name: Install testbed system packages via Makefile (make testbed-install)
+        run: sudo make testbed-install
 
       - name: Install dhcpt globally via make install
         run: sudo make install
