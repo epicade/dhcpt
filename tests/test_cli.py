@@ -912,6 +912,27 @@ def test_main_server_and_dhcp_server_flags(capsys: pytest.CaptureFixture[str]) -
         exit_code2 = main(["-i", "eth0", "--server", "10.2.2.2", "--target-gateway", "10.50.1.1"])
         assert exit_code2 == 0
         assert mock_send.call_args.kwargs.get("servers") == ["10.2.2.2"]
+        captured = capsys.readouterr()
+        assert "Option '--server' / '--servers' is deprecated" in captured.err
+
+
+def test_deprecated_relay_subnet_warning(capsys: pytest.CaptureFixture[str]) -> None:
+    mock_offer = DHCPOffer(
+        server_ip="10.1.1.1",
+        server_mac="00:11:22:33:44:55",
+        offered_ip="10.50.1.150",
+        server_id="10.1.1.1",
+    )
+    with (
+        patch.object(dhcpt_mod, "get_interface_diagnostics", return_value={"exists": True, "operstate": "up"}),
+        patch.object(dhcpt_mod, "get_if_hwaddr", return_value="00:11:22:33:44:55"),
+        patch.object(dhcpt_mod, "send_and_receive_dhcp", return_value=[mock_offer]) as mock_send,
+    ):
+        exit_code = main(["-i", "eth0", "-s", "10.1.1.1", "--relay-subnet", "10.50.1.1"])
+        assert exit_code == 0
+        assert mock_send.call_args.kwargs.get("relay_subnet") == "10.50.1.1"
+        captured = capsys.readouterr()
+        assert "Option '--relay-subnet' is deprecated" in captured.err
 
 
 def test_main_completion_zsh(capsys: pytest.CaptureFixture[str]) -> None:
@@ -1109,16 +1130,25 @@ def test_main_install_skill_cli_existing_refuses_unless_forced(
     assert (dest_dir / "SKILL.md").read_text(encoding="utf-8") != "old"
 
 
+def test_install_agent_skill_invalid_target(capsys: pytest.CaptureFixture[str]) -> None:
+    exit_code = dhcpt_mod.install_agent_skill("nonexistent")
+    assert exit_code == 1
+    captured = capsys.readouterr()
+    assert "Error: Unknown assistant target 'nonexistent'" in captured.err
+
+
 def test_package_public_api() -> None:
     import dhcpt
 
     expected_symbols = [
         "DHCPOffer",
         "DHCPOptionItem",
+        "RouteInfo",
         "build_dhcp_discover",
         "build_option_82",
         "decode_rfc3397_domain_search",
         "get_route_egress_interface",
+        "get_route_for_ip",
         "is_layer3_interface",
         "parse_classless_routes",
         "parse_dhcp_packet",
@@ -1134,6 +1164,23 @@ def test_package_public_api() -> None:
 def test_get_route_egress_interface() -> None:
     egress = dhcpt_mod.get_route_egress_interface("127.0.0.1")
     assert egress == "lo"
+
+
+def test_get_route_for_ip_mocked(monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+
+    def fake_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=["ip", "route", "get", "10.77.0.1"],
+            returncode=0,
+            stdout="10.77.0.1 via 10.99.0.10 dev eth0 src 10.99.0.2 uid 1000\n",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    info = dhcpt_mod.get_route_for_ip("10.77.0.1")
+    assert info.interface == "eth0"
+    assert info.gateway == "10.99.0.10"
+    assert info.src_ip == "10.99.0.2"
 
 
 def test_get_route_egress_interface_mocked(monkeypatch: pytest.MonkeyPatch) -> None:

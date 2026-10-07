@@ -60,7 +60,7 @@ Use this option to bind packet capture and transmission to a specific
 network device.
 .SS DHCP Relay & IP\-Helper Simulation
 .TP
-\f[B]\-\-dhcp\-servers\f[R] \f[I]DHCP_SERVERS\f[R], \f[B]\-\-dhcp\-server\f[R] \f[I]DHCP_SERVERS\f[R], \f[B]\-s\f[R] \f[I]DHCP_SERVERS\f[R]
+\f[B]\-s\f[R] \f[I]DHCP_SERVERS\f[R], \f[B]\-\-dhcp\-server\f[R] \f[I]DHCP_SERVERS\f[R], \f[B]\-\-dhcp\-servers\f[R] \f[I]DHCP_SERVERS\f[R]
 Target one or more remote DHCP servers directly via unicast
 (comma\-separated, e.g.
 \f[CR]\-s 10.1.1.1,10.1.1.2\f[R]).
@@ -69,9 +69,10 @@ Cisco \f[I]ip helper\-address\f[R]).
 When querying remote servers, \f[B]dhcpt\f[R] sets the BOOTP gateway
 field (\f[I]giaddr\f[R]) to the local interface IP.
 This ensures the server routes the reply directly back to your machine.
-Aliases: \f[B]\-\-dhcp\-server\f[R], \f[B]\-s\f[R].
+\f[I]Deprecated aliases:\f[R] \f[CR]\-\-server\f[R],
+\f[CR]\-\-servers\f[R] (will be removed in a future release).
 .TP
-\f[B]\-\-target\-gateway\f[R] \f[I]GATEWAY_IP\f[R], \f[B]\-\-relay\-subnet\f[R] \f[I]GATEWAY_IP\f[R]
+\f[B]\-\-target\-gateway\f[R] \f[I]GATEWAY_IP\f[R]
 Simulate a remote subnet using RFC 3527 Link Selection (Option 82
 Sub\-option 5).
 Specify the gateway IP defined for that pool in the DHCP server
@@ -81,7 +82,8 @@ Meanwhile, \f[B]dhcpt\f[R] keeps \f[I]giaddr\f[R] set to your local IP
 so the reply returns to you.
 Use this option to test VLAN\-specific or subnet\-specific DHCP
 allocation rules without physical access to that network segment.
-Aliases: \f[B]\-\-relay\-subnet\f[R].
+\f[I]Deprecated alias:\f[R] \f[CR]\-\-relay\-subnet\f[R] (will be
+removed in a future release).
 .TP
 \f[B]\-\-circuit\-id\f[R] \f[I]CIRCUIT_ID\f[R]
 Inject Option 82 Sub\-option 1 (Agent Circuit ID) per RFC 3046 (e.g.

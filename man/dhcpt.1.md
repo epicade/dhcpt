@@ -45,20 +45,20 @@ Your routing table must direct traffic for the target server through the tunnel 
 
 ## DHCP Relay & IP-Helper Simulation
 
-**--dhcp-servers** *DHCP_SERVERS*, **--dhcp-server** *DHCP_SERVERS*, **-s** *DHCP_SERVERS*
+**-s** *DHCP_SERVERS*, **--dhcp-server** *DHCP_SERVERS*, **--dhcp-servers** *DHCP_SERVERS*
 :   Target one or more remote DHCP servers directly via unicast (comma-separated, e.g. `-s 10.1.1.1,10.1.1.2`).
     Corresponds to the relay target on routers (e.g. Cisco *ip helper-address*).
     When querying remote servers, **dhcpt** sets the BOOTP gateway field (*giaddr*) to the local interface IP.
     This ensures the server routes the reply directly back to your machine.
-    Aliases: **--dhcp-server**, **-s**.
+    *Deprecated aliases:* `--server`, `--servers` (will be removed in a future release).
 
-**--target-gateway** *GATEWAY_IP*, **--relay-subnet** *GATEWAY_IP*
+**--target-gateway** *GATEWAY_IP*
 :   Simulate a remote subnet using RFC 3527 Link Selection (Option 82 Sub-option 5).
     Specify the gateway IP defined for that pool in the DHCP server configuration.
     This instructs the server which address pool to allocate from.
     Meanwhile, **dhcpt** keeps *giaddr* set to your local IP so the reply returns to you.
     Use this option to test VLAN-specific or subnet-specific DHCP allocation rules without physical access to that network segment.
-    Aliases: **--relay-subnet**.
+    *Deprecated alias:* `--relay-subnet` (will be removed in a future release).
 
 **--circuit-id** *CIRCUIT_ID*
 :   Inject Option 82 Sub-option 1 (Agent Circuit ID) per RFC 3046 (e.g. `Vlan100`, `ge-0/0/1`).
