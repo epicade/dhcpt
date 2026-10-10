@@ -96,6 +96,20 @@ Generate machine-readable JSON for monitoring checks and automation scripts:
 sudo dhcpt -i eth0 --json
 ```
 
+### 5. Python Library Integration (`import dhcpt`)
+
+Embed lease-safe DHCP packet testing directly into custom Python scripts, diagnostic daemons, or test harnesses:
+
+```python
+import dhcpt
+
+offers = dhcpt.send_and_receive_dhcp(interface="eth0", timeout=3.0)
+for offer in offers:
+    print(f"Offered {offer.offered_ip} by server {offer.server_ip}")
+```
+
+*Comprehensive Guide:* See the [Python Library Usage Guide](docs/library-usage.md) for full API reference, RFC 3527 relay simulation, and kernel routing inspection.
+
 ---
 
 ## Quick Reference / Cheat Sheet
@@ -118,6 +132,10 @@ sudo dhcpt -i eth0 --json
 | **`-v, -vv, -d`** | Verbose / debug logging (`*` state, `>` send, `<` recv). |
 | **`-l, --list-interfaces`** | List available network interfaces with IP, MAC, carrier, and operstate. |
 | **`--list-options`** | List supported DHCP option codes, names, and formats. |
+| **`--install-skill [TARGET]`** | Deploy AI agent skills for Gemini CLI, Claude Code, or Mistral Vibe (`all`, `gemini`, `claude`, `mistral`). |
+| **`--force`** | Force overwrite of existing skill files or symlinks during `--install-skill`. |
+| **`--completion <shell>`** | Generate shell completion script to stdout (`zsh` or `bash`). |
+| **`--version`** | Print package version number and exit. |
 
 ---
 
@@ -169,9 +187,14 @@ sudo make install
 
 #### Option D: Direct Python Execution (No Binary Installation)
 
-Run `dhcpt` directly from source or within container environments:
+Run `dhcpt` directly from a cloned repository (without installing binaries) or within container environments:
 
 ```bash
+# Direct execution from within the repository root:
+sudo env PYTHONPATH=src python3 -m dhcpt -i eth0
+
+# Or after installing into your Python environment via pip:
+pip install .
 sudo python3 -m dhcpt -i eth0
 ```
 
@@ -268,11 +291,11 @@ make testbed-run
 make testbed-stop
 ```
 
-For full testbed architecture details, see the [Testing Infrastructure Guide](docs/testing-infrastruktur.md).
+For full testbed architecture details, see the [Testing Infrastructure Guide](docs/testing-infrastructure.md).
 
 ---
 
-## 🤖 AI Authorship & Transparency Disclosure
+## AI Authorship & Transparency Disclosure
 
 This tool was designed by **Emilian Schweikert ([@epicade](https://github.com/epicade))**.
 It was implemented, tested, and documented in collaboration with **Gemini CLI (Google Gemini)**.

@@ -1,6 +1,6 @@
 # DHCP Relay Architecture & RFC 3527 Link Selection
 
-> ⚠️ **AI Authorship Notice & Review Request:**  
+> **[NOTICE] AI Authorship & Review Request:**  
 > This architectural guide was drafted with AI assistance (Google Gemini CLI).  
 > **TODO:** A human network engineer should peer-review these explanations and vendor behaviors against live environments.
 

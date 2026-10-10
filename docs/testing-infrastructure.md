@@ -1,6 +1,6 @@
 # End-to-End Live Testing Infrastructure
 
-> ⚠️ **AI Authorship Notice & Review Request:**  
+> **[NOTICE] AI Authorship & Review Request:**  
 > This documentation was drafted with AI assistance (Google Gemini CLI).  
 > **TODO:** A human engineer should review the testbed architecture, namespace setup, and routing mechanics.
 
