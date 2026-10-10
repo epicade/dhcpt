@@ -83,7 +83,8 @@ packages = ["src/dhcpt"]
 [tool.hatch.build.targets.wheel.shared-data]
 "man/dhcpt.1" = "share/man/man1/dhcpt.1"
 "docs/relay-mechanics.md" = "share/doc/dhcpt/relay-mechanics.md"
-"docs/testing-infrastruktur.md" = "share/doc/dhcpt/testing-infrastruktur.md"
+"docs/testing-infrastructure.md" = "share/doc/dhcpt/testing-infrastructure.md"
+"docs/library-usage.md" = "share/doc/dhcpt/library-usage.md"
 "completions/bash/dhcpt" = "share/bash-completion/completions/dhcpt"
 "completions/zsh/_dhcpt" = "share/zsh/site-functions/_dhcpt"
 
