@@ -58,6 +58,7 @@ dhcpt = "dhcpt.cli:main"
 dev = [
     "pytest>=8.0",
     "pytest-mock>=3.14",
+    "pyyaml>=6.0",
     "ruff>=0.4",
 ]
 
