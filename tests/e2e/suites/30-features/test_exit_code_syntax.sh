@@ -48,3 +48,12 @@ code=$?
 set -e
 assert_exit_code "Negative timeout" 2 "$code" "$output"
 assert_contains "Invalid timeout error message" "Timeout must be a positive number" "$output"
+
+# 6. Force flag without --install-skill
+set +e
+output=$($DHCPT --interface "$IFACE" --force 2>&1)
+code=$?
+set -e
+assert_exit_code "--force without --install-skill" 2 "$code" "$output"
+assert_contains "--force validation error message" "only valid when combined with '--install-skill'" "$output"
+
