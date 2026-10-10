@@ -111,7 +111,7 @@ For verifying raw socket packet crafting, kernel routing, and DHCP options again
   ```bash
   make testbed-stop
   ```
-*Detailed Architecture:* See [`docs/testing-infrastruktur.md`](docs/testing-infrastruktur.md) for full topology diagrams and policy details.
+*Detailed Architecture:* See [`docs/testing-infrastructure.md`](docs/testing-infrastructure.md) for full topology diagrams and policy details.
 
 ### 3. Pre-Commit Git Hook
 The repository includes an automated pre-commit hook in `.githooks/pre-commit` that validates Ruff, ShellCheck, Zsh completion syntax, Pandoc manpage freshness, Kea configuration schemas, and Pytest on every commit. Ensure it is active locally:

@@ -12,7 +12,8 @@ dhcpt - comprehensive DHCP tester, troubleshooting, and diagnostic CLI utility
 **dhcpt** **-i** *INTERFACE* [*OPTIONS*]  
 **dhcpt** **--list-interfaces**  
 **dhcpt** **--list-options**  
-**dhcpt** **--install-skill** [*TARGET*]
+**dhcpt** **--install-skill** [*TARGET*]  
+**python3 -m dhcpt** [*OPTIONS*] [*INTERFACE*]
 
 # DESCRIPTION
 
@@ -50,7 +51,7 @@ Your routing table must direct traffic for the target server through the tunnel 
     Corresponds to the relay target on routers (e.g. Cisco *ip helper-address*).
     When querying remote servers, **dhcpt** sets the BOOTP gateway field (*giaddr*) to the local interface IP.
     This ensures the server routes the reply directly back to your machine.
-    *Deprecated aliases:* `--server`, `--servers` (will be removed in a future release).
+    *Deprecated aliases:* `--server`, `--servers` (will be removed in v1.0.0).
 
 **--target-gateway** *GATEWAY_IP*
 :   Simulate a remote subnet using RFC 3527 Link Selection (Option 82 Sub-option 5).
@@ -58,7 +59,7 @@ Your routing table must direct traffic for the target server through the tunnel 
     This instructs the server which address pool to allocate from.
     Meanwhile, **dhcpt** keeps *giaddr* set to your local IP so the reply returns to you.
     Use this option to test VLAN-specific or subnet-specific DHCP allocation rules without physical access to that network segment.
-    *Deprecated alias:* `--relay-subnet` (will be removed in a future release).
+    *Deprecated alias:* `--relay-subnet` (will be removed in v1.0.0).
 
 **--circuit-id** *CIRCUIT_ID*
 :   Inject Option 82 Sub-option 1 (Agent Circuit ID) per RFC 3046 (e.g. `Vlan100`, `ge-0/0/1`).
@@ -143,6 +144,7 @@ Your routing table must direct traffic for the target server through the tunnel 
 
 **--force**
 :   Force overwrite of existing skill files or symlinks during **--install-skill**.
+    Only valid in combination with **--install-skill**; exiting with code 2 if supplied during normal packet operations.
 
 **--completion** {*zsh*,*bash*}
 :   Generate shell completion script for Zsh or Bash to standard output, then exit.
@@ -186,6 +188,19 @@ and RFC 3527 routing mechanics, see the online guide at: <https://github.com/epi
 
 3
 :   Partial response: multi-server query (**-s**) where some servers answered but at least one timed out.
+
+# OUTPUT FORMAT & STREAMS
+
+**Standard Output (stdout)**
+:   When DHCP Offers are received, human-readable offer reports are written to standard output.
+    When **--json** (**-j**) is supplied, complete structured JSON is always written to standard output,
+    including link diagnostics and error metadata, ensuring reliable parsing in monitoring checks.
+
+**Standard Error (stderr)**
+:   In standard text mode, if zero DHCP Offers are received within the timeout window (exit code 1),
+    a concise single-line failure message and link-state diagnostics are emitted to standard error.
+    This guarantees standard output remains empty for automated pipeline consumers.
+    CLI usage errors (exit code 2) and deprecation warnings are likewise emitted to standard error.
 
 # EXAMPLES
 
@@ -301,3 +316,9 @@ IANA BOOTP and DHCP Parameters Registry: <https://www.iana.org/assignments/bootp
 
 DHCP Relay Architecture Guide: <https://github.com/epicade/dhcpt/blob/main/docs/relay-mechanics.md>
 (installed locally at */usr/share/doc/dhcpt/relay-mechanics.md*)
+
+Python Library Usage Guide: <https://github.com/epicade/dhcpt/blob/main/docs/library-usage.md>
+(installed locally at */usr/share/doc/dhcpt/library-usage.md*)
+
+Testing Infrastructure Guide: <https://github.com/epicade/dhcpt/blob/main/docs/testing-infrastructure.md>
+(installed locally at */usr/share/doc/dhcpt/testing-infrastructure.md*)
