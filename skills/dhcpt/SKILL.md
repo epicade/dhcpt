@@ -145,6 +145,27 @@ dhcpt --install-skill claude
 dhcpt --install-skill --force
 ```
 
+### 10. Zero-Risk Local Sandbox Testing (Network Namespaces)
+When you want to experiment or verify functionality safely without sending traffic onto production networks (requires cloned repository, installed `dhcpt`, and testbed packages):
+```bash
+# 1. Clone repository, install dhcpt, and set up testbed packages:
+git clone https://github.com/epicade/dhcpt.git
+cd dhcpt
+sudo make install-dev       # Installs dhcpt into /usr/local/bin (required by sudo in namespaces)
+sudo make install-testbed   # Installs Kea DHCP server, jq, and Scapy packages
+
+# 2. Start local Kea testbed (isolated namespaces + virtual bridge):
+make testbed-start
+
+# 3. Run tests safely inside the workstation namespace:
+sudo ip netns exec workstation dhcpt -i veth-client
+sudo ip netns exec workstation dhcpt -i veth-client --all
+sudo ip netns exec workstation dhcpt -i veth-client -s 10.99.0.1 --target-gateway 10.50.1.1
+
+# 4. Stop and clean up namespaces:
+make testbed-stop
+```
+
 ---
 
 ## Exit Codes

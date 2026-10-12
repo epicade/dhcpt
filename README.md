@@ -96,7 +96,88 @@ Generate machine-readable JSON for monitoring checks and automation scripts:
 sudo dhcpt -i eth0 --json
 ```
 
-### 5. Python Library Integration (`import dhcpt`)
+<details>
+<summary>Click to view representative JSON output</summary>
+
+```json
+{
+  "interface": "eth0",
+  "diagnostics": {
+    "exists": true,
+    "operstate": "up",
+    "carrier": "1",
+    "address": "00:11:22:33:44:55",
+    "mtu": "1500"
+  },
+  "timeout": 5.0,
+  "relay_simulation": {
+    "circuit_id": "Vlan100",
+    "target_gateway": "10.50.1.1"
+  },
+  "offers_count": 1,
+  "offers": [
+    {
+      "server_ip": "192.0.2.1",
+      "server_mac": "52:54:00:12:34:56",
+      "offered_ip": "10.50.1.105",
+      "lease_time": 86400,
+      "subnet_mask": "255.255.255.0",
+      "router": "10.50.1.1",
+      "dns_servers": ["10.50.1.2", "10.50.1.3"],
+      "domain_name": "corp.example.com"
+    }
+  ]
+}
+```
+
+*Full Payload Example:* See [`examples/dhcp-offer.json`](examples/dhcp-offer.json) for a complete sample including RFC 3442 static routes and raw option TLVs.
+
+</details>
+
+### 5. Inspect Verbose Status & Packet Trees (`-v`, `-vv`)
+
+Inspect internal link diagnostics and raw Scapy packet layer trees using curl-style stream indicators:
+
+* `*` : Informational state and link diagnostics (e.g. `* Interface: eth0`, `* Mode: ...`, subsystem tags `* [route]`, `* [arp]`).
+* `>` : Outgoing network traffic (e.g. `> DHCPDISCOVER #1: XID ...` and outgoing frame trees `> Frame ...`).
+* `<` : Incoming network traffic (e.g. `< DHCPOFFER (...): offered ... (+12ms)` and incoming frame trees `< Frame ...`).
+
+```bash
+# Detailed INFO logs with curl indicators:
+sudo dhcpt -i eth0 -v
+
+# Full DEBUG logs with Scapy packet trees:
+sudo dhcpt -i eth0 -vv
+```
+
+### 6. Try dhcpt Safely: Zero-Risk Local Sandbox
+
+Hesitant to test against live production networks? Use the built-in isolated namespace testbed to experiment safely without sending a single packet onto your physical network (requires cloning the git repository, installing `dhcpt`, and installing testbed packages):
+
+```bash
+# 1. Clone repository, install dhcpt, and set up testbed dependencies:
+git clone https://github.com/epicade/dhcpt.git
+cd dhcpt
+sudo make install-dev       # Installs dhcpt into /usr/local/bin (required by sudo inside namespaces)
+sudo make install-testbed   # Installs Kea DHCP server, jq, and Scapy packages
+
+# 2. Start isolated local Kea testbed (creates Linux namespaces & bridge):
+make testbed-start
+
+# 3. Run broadcast check against legitimate Kea server:
+sudo ip netns exec workstation dhcpt -i veth-client
+
+# 4. Detect rogue DHCP server in the isolated broadcast domain:
+sudo ip netns exec workstation dhcpt -i veth-client --all
+
+# 5. Simulate RFC 3527 relay query against virtual gateway:
+sudo ip netns exec workstation dhcpt -i veth-client -s 10.99.0.1 --target-gateway 10.50.1.1
+
+# 6. Clean up and destroy testbed namespaces:
+make testbed-stop
+```
+
+### 7. Python Library Integration (`import dhcpt`)
 
 Embed lease-safe DHCP packet testing directly into custom Python scripts, diagnostic daemons, or test harnesses:
 

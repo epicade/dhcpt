@@ -281,6 +281,62 @@ This guarantees standard output remains empty for automated pipeline
 consumers.
 CLI usage errors (exit code 2) and deprecation warnings are likewise
 emitted to standard error.
+.TP
+\f[B]Verbose and Diagnostic Streams (\-v, \-vv, \-d)\f[R]
+When verbosity is enabled (\f[B]\-v\f[R] for INFO, \f[B]\-vv\f[R] or
+\f[B]\-d\f[R] for DEBUG), \f[B]dhcpt\f[R] prefixes diagnostic logs using
+curl\-style stream indicators:
+.RS
+.TP
+\f[B]*\f[R]
+Informational state and link diagnostics: interface status, test mode,
+completion timing, and debug subsystem tags (\f[I]* [route]\f[R], \f[I]*
+[arp]\f[R], \f[I]* [dns]\f[R], \f[I]* [sysfs]\f[R], \f[I]*
+[capture]\f[R]).
+.TP
+\f[B]>\f[R]
+Outgoing network traffic: transmitted DHCP Discover packets (\f[I]>
+DHCPDISCOVER #1...\f[R]) with transaction ID (\f[I]XID\f[R]),
+destination, and Scapy Layer 2/3 frame trees (\f[I]> Frame...\f[R]).
+.TP
+\f[B]<\f[R]
+Incoming network traffic: received DHCP Offer packets (\f[I]<
+DHCPOFFER...\f[R]) with round\-trip latency timing, responding server
+ID, offered IP (\f[I]yiaddr\f[R]), and decoded options trees (\f[I]<
+Frame...\f[R]).
+.RE
+.TP
+\f[B]Structured JSON Output Format (\-\-json)\f[R]
+When \f[B]\-\-json\f[R] is passed, output is rendered as
+machine\-readable JSON matching the following structure:
+.RS
+.IP
+.EX
+{
+  \(dqinterface\(dq: \(dqeth0\(dq,
+  \(dqdiagnostics\(dq: { \(dqoperstate\(dq: \(dqup\(dq, \(dqcarrier\(dq: \(dq1\(dq },
+  \(dqtimeout\(dq: 5.0,
+  \(dqrelay_simulation\(dq: {
+    \(dqcircuit_id\(dq: \(dqVlan100\(dq,
+    \(dqtarget_gateway\(dq: \(dq10.50.1.1\(dq
+  },
+  \(dqoffers_count\(dq: 1,
+  \(dqoffers\(dq: [
+    {
+      \(dqserver_ip\(dq: \(dq192.0.2.1\(dq,
+      \(dqoffered_ip\(dq: \(dq10.50.1.105\(dq,
+      \(dqlease_time\(dq: 86400,
+      \(dqsubnet_mask\(dq: \(dq255.255.255.0\(dq,
+      \(dqrouter\(dq: \(dq10.50.1.1\(dq,
+      \(dqdns_servers\(dq: [\(dq10.50.1.2\(dq]
+    }
+  ]
+}
+.EE
+.PP
+For a full payload example including all raw options and classless
+routes, see \f[I]examples/dhcp\-offer.json\f[R].
+.RE
 .SH EXAMPLES
 Standard local broadcast check:
 .IP
@@ -418,5 +474,11 @@ Testing Infrastructure Guide: \c
 .UE \c
 \ (installed locally at
 \f[I]/usr/share/doc/dhcpt/testing\-infrastructure.md\f[R])
+.PP
+Example JSON Output Payload: \c
+.UR https://github.com/epicade/dhcpt/blob/main/examples/dhcp-offer.json
+.UE \c
+\ (installed locally at
+\f[I]/usr/share/doc/dhcpt/examples/dhcp\-offer.json\f[R])
 .SH AUTHORS
 Emilian Schweikert.
