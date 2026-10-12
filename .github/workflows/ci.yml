@@ -50,6 +50,9 @@ jobs:
       - name: Install package and test dependencies
         run: python3 -m pip install -e .[dev]
 
+      - name: Verify standalone module execution (python3 -m dhcpt)
+        run: python3 -m dhcpt --version
+
       - name: Run Pytest Test Suite via Makefile
         run: make test
 
@@ -72,6 +75,9 @@ jobs:
 
       - name: Install package and dependencies
         run: python3 -m pip install -e .[dev]
+
+      - name: Verify standalone module execution (python3 -m dhcpt)
+        run: python3 -m dhcpt --version
 
       - name: Run Pytest Test Suite via Makefile
         run: make test
@@ -100,8 +106,25 @@ jobs:
           test -f /usr/local/share/zsh/site-functions/_dhcpt || { echo "[ERROR] Missing installed zsh completion in /usr/local/share/zsh/site-functions/_dhcpt!" >&2; exit 1; }
           /usr/local/bin/dhcpt --version || { echo "[ERROR] Failed executing /usr/local/bin/dhcpt --version!" >&2; exit 1; }
           sudo dhcpt --version || { echo "[ERROR] Failed executing sudo dhcpt --version!" >&2; exit 1; }
+          if head -n 1 /usr/local/bin/dhcpt | grep -q "^#!"; then
+            PIPX_PY=$(head -n 1 /usr/local/bin/dhcpt | sed 's/^#!//' | awk '{print $1}')
+            if [ -x "$PIPX_PY" ]; then
+              sudo "$PIPX_PY" -m dhcpt --version || { echo "[ERROR] Failed executing pipx venv python -m dhcpt!" >&2; exit 1; }
+            fi
+          fi
           man_path=$(man -w -M /usr/local/share/man dhcpt)
           test "$(readlink -f "$man_path")" = "$(readlink -f /usr/local/share/man/man1/dhcpt.1)" || { echo "[ERROR] man resolution expected to resolve to /usr/local/share/man/man1/dhcpt.1, got '$man_path'!" >&2; exit 1; }
+
+      - name: "Verify Option D Method 1: Direct checkout execution (PYTHONPATH=src)"
+        run: |
+          PYTHONPATH=src python3 -m dhcpt --version
+          sudo env PYTHONPATH=src python3 -m dhcpt --version
+
+      - name: "Verify Option D Method 2: Execution via pip installed package"
+        run: |
+          sudo python3 -m pip install . --break-system-packages 2>/dev/null || sudo python3 -m pip install .
+          python3 -m dhcpt --version
+          sudo python3 -m dhcpt --version
 
       - name: Start Live Kea Testbed (make testbed-start)
         run: |

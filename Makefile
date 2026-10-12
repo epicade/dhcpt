@@ -97,6 +97,8 @@ lint:  ## Run linters (ruff, shellcheck, zsh syntax, manpage, kea configs, versi
 	bash -o noexec completions/bash/dhcpt
 	find tests/e2e -type f -name "*.sh" -exec bash -o noexec {} +
 	tests/e2e/testbed.sh check-config
+	@echo "Validating YAML configuration and CI workflow syntax..."
+	@$(PYTHON) -c "import yaml, glob; files = glob.glob('.github/**/*.yml', recursive=True) + glob.glob('*.yml') + glob.glob('*.yaml'); [yaml.safe_load(open(f, encoding='utf-8')) for f in files]"
 	@echo "Validating project version consistency..."
 	@$(PYTHON) tests/test_version_consistency.py
 	@if command -v zsh >/dev/null 2>&1; then \
