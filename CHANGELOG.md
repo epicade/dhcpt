@@ -9,6 +9,8 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 ---
 
 ### New
+* Document zero-risk local namespace testbed sandbox for safe offline evaluation in README and skill
+* Add comprehensive sample payload examples/dhcp-offer.json and embed expandable JSON in README
 * Add comprehensive Python library documentation and usage guide (docs/library-usage.md)
 * Add executable module entrypoint src/dhcpt/__main__.py for direct execution via python3 -m dhcpt
 * Add UNIX manpage dhcpt(1) with shared-data installation for pipx and Linux package managers
@@ -20,6 +22,7 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 * Export public library networking functions and dataclasses in dhcpt.__init__
 
 ### Changes
+* Explain curl-style verbose status indicators (*, >, <) and document JSON schema in UNIX manpage
 * Include tests directory in source distribution (sdist) for downstream package builders
 * Require explicit target DHCP servers (-s/--dhcp-servers) on Layer 3 interfaces and exit with code 2 if omitted
 * Validate Linux kernel routing egress interface on Layer 3 devices and emit warning on mismatch

@@ -202,6 +202,49 @@ and RFC 3527 routing mechanics, see the online guide at: <https://github.com/epi
     This guarantees standard output remains empty for automated pipeline consumers.
     CLI usage errors (exit code 2) and deprecation warnings are likewise emitted to standard error.
 
+**Verbose and Diagnostic Streams (-v, -vv, -d)**
+:   When verbosity is enabled (**-v** for INFO, **-vv** or **-d** for DEBUG), **dhcpt** prefixes diagnostic logs
+    using curl-style stream indicators:
+
+    **\***
+    :   Informational state and link diagnostics: interface status, test mode, completion timing,
+        and debug subsystem tags (*\* [route]*, *\* [arp]*, *\* [dns]*, *\* [sysfs]*, *\* [capture]*).
+
+    **>**
+    :   Outgoing network traffic: transmitted DHCP Discover packets (*> DHCPDISCOVER #1...*)
+        with transaction ID (*XID*), destination, and Scapy Layer 2/3 frame trees (*> Frame...*).
+
+    **<**
+    :   Incoming network traffic: received DHCP Offer packets (*< DHCPOFFER...*) with round-trip
+        latency timing, responding server ID, offered IP (*yiaddr*), and decoded options trees (*< Frame...*).
+
+**Structured JSON Output Format (--json)**
+:   When **--json** is passed, output is rendered as machine-readable JSON matching the following structure:
+
+    ```json
+    {
+      "interface": "eth0",
+      "diagnostics": { "operstate": "up", "carrier": "1" },
+      "timeout": 5.0,
+      "relay_simulation": {
+        "circuit_id": "Vlan100",
+        "target_gateway": "10.50.1.1"
+      },
+      "offers_count": 1,
+      "offers": [
+        {
+          "server_ip": "192.0.2.1",
+          "offered_ip": "10.50.1.105",
+          "lease_time": 86400,
+          "subnet_mask": "255.255.255.0",
+          "router": "10.50.1.1",
+          "dns_servers": ["10.50.1.2"]
+        }
+      ]
+    }
+    ```
+    For a full payload example including all raw options and classless routes, see *examples/dhcp-offer.json*.
+
 # EXAMPLES
 
 Standard local broadcast check:
@@ -322,3 +365,6 @@ Python Library Usage Guide: <https://github.com/epicade/dhcpt/blob/main/docs/lib
 
 Testing Infrastructure Guide: <https://github.com/epicade/dhcpt/blob/main/docs/testing-infrastructure.md>
 (installed locally at */usr/share/doc/dhcpt/testing-infrastructure.md*)
+
+Example JSON Output Payload: <https://github.com/epicade/dhcpt/blob/main/examples/dhcp-offer.json>
+(installed locally at */usr/share/doc/dhcpt/examples/dhcp-offer.json*)
