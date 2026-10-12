@@ -1028,6 +1028,30 @@ def test_parser_epilog_references_man_and_url() -> None:
     assert "README.md" not in epilog
 
 
+def test_parser_epilog_examples_formatting() -> None:
+    parser = dhcpt_mod.build_parser()
+    epilog = parser.epilog or ""
+    assert "Examples:\n  # Standard broadcast check on eth0:\n  sudo dhcpt -i eth0" in epilog
+    assert (
+        "# Relay simulation (RFC 3527):\n  sudo dhcpt -i eth0 --dhcp-servers 192.0.2.1 --target-gateway 10.50.1.1"
+        in epilog
+    )
+
+
+def test_lazy_scapy_loading_and_attributes() -> None:
+    assert dhcpt_mod._load_scapy() is True
+    assert dhcpt_mod.SCAPY_AVAILABLE is True
+    assert dhcpt_mod.IP is not None
+    assert dhcpt_mod.BOOTP is not None
+    assert dhcpt_mod.DHCP is not None
+    assert dhcpt_mod.Ether is not None
+    assert dhcpt_mod.ARP is not None
+    assert callable(dhcpt_mod.get_if_hwaddr)
+    assert callable(dhcpt_mod.get_if_addr)
+    with pytest.raises(AttributeError, match="has no attribute 'nonexistent_symbol'"):
+        _ = dhcpt_mod.nonexistent_symbol
+
+
 def test_get_skill_content() -> None:
     content = dhcpt_mod.get_skill_content()
     assert content is not None
