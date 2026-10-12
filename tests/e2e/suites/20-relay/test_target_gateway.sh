@@ -19,3 +19,9 @@ set -e
 assert_exit_code "Target gateway query exit code" 0 "$exit_code" "$json_out"
 offered_ip=$(echo "$json_out" | jq --raw-output '.offers[0]?.offered_ip // empty')
 assert_contains "Offered IP matches target gateway subnet 10.50.1.x" "10.50.1." "$offered_ip"
+
+relay_sim_tg=$(echo "$json_out" | jq --raw-output '.relay_simulation.target_gateway // empty')
+assert_equals "JSON relay_simulation.target_gateway matches" "$GATEWAY" "$relay_sim_tg"
+
+legacy_sim_rs=$(echo "$json_out" | jq --raw-output '.cisco_relay_simulation.relay_subnet // empty')
+assert_equals "JSON cisco_relay_simulation.relay_subnet matches" "$GATEWAY" "$legacy_sim_rs"

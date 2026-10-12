@@ -650,7 +650,7 @@ def test_build_parser() -> None:
     assert args.servers == "10.1.1.1,10.1.1.2"
     assert args.circuit_id == "Vlan50"
     assert args.remote_id == "sw01"
-    assert args.relay_subnet == "10.50.1.1"
+    assert args.target_gateway == "10.50.1.1"
     assert args.timeout == 10.0
     assert args.request_options == "66,67"
     assert args.debug is True
@@ -726,8 +726,11 @@ def test_main_invalid_timeout(capsys: pytest.CaptureFixture[str]) -> None:
     captured = capsys.readouterr()
     assert "Timeout must be a positive number greater than 0" in captured.err
 
-    exit_code_neg = main(["-i", "eth0", "-t", "-5"])
+    exit_code_neg = main(["-i", "eth0", "-t", "-5.0"])
     assert exit_code_neg == 2
+
+    with pytest.raises(SystemExit):
+        main(["-i", "eth0", "-t", "invalid_number"])
 
 
 def test_main_with_interface_flag(capsys: pytest.CaptureFixture[str]) -> None:
@@ -872,7 +875,7 @@ def test_main_cisco_relay_simulation_flow(capsys: pytest.CaptureFixture[str]) ->
         assert call_kwargs.get("servers") == ["10.1.1.1", "10.1.1.2"]
         assert call_kwargs.get("circuit_id") == "Vlan50"
         assert call_kwargs.get("remote_id") == "sw-cisco01"
-        assert call_kwargs.get("relay_subnet") == "10.50.1.1"
+        assert call_kwargs.get("target_gateway") == "10.50.1.1"
 
 
 def test_main_cisco_relay_simulation_target_gateway(capsys: pytest.CaptureFixture[str]) -> None:
@@ -890,7 +893,7 @@ def test_main_cisco_relay_simulation_target_gateway(capsys: pytest.CaptureFixtur
         exit_code = main(["-i", "eth0", "-s", "10.1.1.1", "--target-gateway", "10.50.1.1"])
         assert exit_code == 0
         call_kwargs = mock_send.call_args.kwargs
-        assert call_kwargs.get("relay_subnet") == "10.50.1.1"
+        assert call_kwargs.get("target_gateway") == "10.50.1.1"
 
 
 def test_main_server_and_dhcp_server_flags(capsys: pytest.CaptureFixture[str]) -> None:
@@ -930,7 +933,7 @@ def test_deprecated_relay_subnet_warning(capsys: pytest.CaptureFixture[str]) -> 
     ):
         exit_code = main(["-i", "eth0", "-s", "10.1.1.1", "--relay-subnet", "10.50.1.1"])
         assert exit_code == 0
-        assert mock_send.call_args.kwargs.get("relay_subnet") == "10.50.1.1"
+        assert mock_send.call_args.kwargs.get("target_gateway") == "10.50.1.1"
         captured = capsys.readouterr()
         assert "Option '--relay-subnet' is deprecated" in captured.err
 
@@ -1181,6 +1184,34 @@ def test_get_route_for_ip_mocked(monkeypatch: pytest.MonkeyPatch) -> None:
     assert info.interface == "eth0"
     assert info.gateway == "10.99.0.10"
     assert info.src_ip == "10.99.0.2"
+
+
+def test_get_route_for_ip_scapy_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Verify that get_route_for_ip falls back to Scapy's conf.route if ip route get fails."""
+    import subprocess
+
+    from scapy.config import conf
+
+    def fail_run(*args: Any, **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(
+            args=["ip", "route", "get", "10.77.0.1"],
+            returncode=1,
+            stdout="",
+            stderr="RTNETLINK answers: Network is unreachable\n",
+        )
+
+    monkeypatch.setattr(subprocess, "run", fail_run)
+
+    class FakeRouteTable:
+        def route(self, ip: str) -> tuple[str, str, str]:
+            return ("eth2", "192.168.10.1", "192.168.10.50")
+
+    monkeypatch.setattr(conf, "route", FakeRouteTable())
+
+    info = dhcpt_mod.get_route_for_ip("10.77.0.1")
+    assert info.interface == "eth2"
+    assert info.gateway == "192.168.10.1"
+    assert info.src_ip == "192.168.10.50"
 
 
 def test_get_route_egress_interface_mocked(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -1518,3 +1549,126 @@ def test_zsh_runtime_tab_completion() -> None:
     assert "_arguments:" not in out, f"Zsh _arguments error found: {out}"
     assert "comparguments:" not in out, f"Zsh comparguments error found: {out}"
     assert "invalid argument" not in out, f"Zsh syntax error found: {out}"
+
+
+def test_main_force_without_install_skill_fails(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify that --force without --install-skill returns exit code 2 and an error message."""
+    exit_code = main(["-i", "eth0", "--force"])
+    assert exit_code == 2
+    captured = capsys.readouterr()
+    assert "Option '--force' is only valid when combined with '--install-skill'" in captured.err
+
+
+def test_module_execution_standalone() -> None:
+    """Verify that 'python3 -m dhcpt --version' executes cleanly via PYTHONPATH (Option D Method 1)."""
+    import os
+    import subprocess
+    import sys
+
+    root_dir = Path(__file__).resolve().parent.parent
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(root_dir / "src")
+
+    res = subprocess.run(
+        [sys.executable, "-m", "dhcpt", "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+    )
+    assert res.returncode == 0
+    assert f"dhcpt {dhcpt_mod.__version__}" in res.stdout.strip()
+
+
+def test_module_execution_installed_package() -> None:
+    """Verify that 'python3 -m dhcpt --version' executes cleanly without PYTHONPATH when installed in site-packages (Option D Method 2)."""
+    import os
+    import subprocess
+    import sys
+
+    env = os.environ.copy()
+    env.pop("PYTHONPATH", None)
+
+    res = subprocess.run(
+        [sys.executable, "-m", "dhcpt", "--version"],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        cwd=str(Path.home()),
+    )
+    if res.returncode == 0:
+        assert f"dhcpt {dhcpt_mod.__version__}" in res.stdout.strip()
+
+
+def test_format_offers_json_relay_simulation_mirroring() -> None:
+    """Verify that format_offers_json outputs both 'relay_simulation' and legacy 'cisco_relay_simulation'."""
+    offer = DHCPOffer(
+        server_ip="10.1.1.1",
+        server_mac="00:11:22:33:44:55",
+        offered_ip="10.50.1.100",
+        server_id="10.1.1.1",
+    )
+    json_str = format_offers_json(
+        [offer],
+        interface="eth0",
+        diagnostics={"operstate": "up"},
+        timeout=5.0,
+        servers=["10.1.1.1"],
+        circuit_id="Vlan100",
+        remote_id="sw-edge01",
+        target_gateway="10.50.1.1",
+    )
+    data = json.loads(json_str)
+
+    # Modern vendor-neutral block
+    assert "relay_simulation" in data
+    assert data["relay_simulation"]["circuit_id"] == "Vlan100"
+    assert data["relay_simulation"]["remote_id"] == "sw-edge01"
+    assert data["relay_simulation"]["target_gateway"] == "10.50.1.1"
+    assert data["relay_simulation"]["relay_subnet"] == "10.50.1.1"
+
+    # Deprecated legacy block (for backward compatibility until v1.0.0)
+    assert "cisco_relay_simulation" in data
+    assert data["cisco_relay_simulation"]["circuit_id"] == "Vlan100"
+    assert data["cisco_relay_simulation"]["remote_id"] == "sw-edge01"
+    assert data["cisco_relay_simulation"]["relay_subnet"] == "10.50.1.1"
+
+
+def test_send_and_receive_dhcp_l2_routed_gateway_mac() -> None:
+    """Verify that send_and_receive_dhcp resolves next-hop gateway MAC on Layer 2 when server is routed."""
+    from unittest.mock import MagicMock
+
+    from dhcpt.cli import RouteInfo
+
+    mock_route = RouteInfo(interface="eth0", gateway="192.168.1.254", src_ip="192.168.1.10")
+
+    mock_pkt = MagicMock()
+    mock_pkt.haslayer.return_value = False
+    mock_pkt.__bytes__ = lambda self: b"\x00" * 40
+
+    with (
+        patch("dhcpt.cli.is_layer3_interface", return_value=False),
+        patch("dhcpt.cli.get_if_addr", return_value="192.168.1.10"),
+        patch("dhcpt.cli.get_route_for_ip", return_value=mock_route),
+        patch("dhcpt.cli.get_gateway_ip", return_value=None),
+        patch(
+            "dhcpt.cli.get_mac_for_ip",
+            side_effect=lambda ip, iface, **kw: "aa:bb:cc:dd:ee:fe" if ip == "192.168.1.254" else None,
+        ),
+        patch("dhcpt.cli.build_dhcp_discover") as mock_build,
+        patch("dhcpt.cli.srp", return_value=([], [])),
+    ):
+        mock_build.return_value = mock_pkt
+        offers = dhcpt_mod.send_and_receive_dhcp(
+            interface="eth0",
+            mac_str="00:11:22:33:44:55",
+            timeout=1.0,
+            servers=["10.99.0.1"],
+            target_gateway="10.50.1.1",
+        )
+        assert offers == []
+        # Verify build_dhcp_discover was called with dst_mac set to the resolved gateway MAC
+        mock_build.assert_called_once()
+        assert mock_build.call_args.kwargs.get("dst_mac") == "aa:bb:cc:dd:ee:fe"
+        assert mock_build.call_args.kwargs.get("dst_ip") == "10.99.0.1"
