@@ -86,6 +86,7 @@ packages = ["src/dhcpt"]
 "docs/relay-mechanics.md" = "share/doc/dhcpt/relay-mechanics.md"
 "docs/testing-infrastructure.md" = "share/doc/dhcpt/testing-infrastructure.md"
 "docs/library-usage.md" = "share/doc/dhcpt/library-usage.md"
+"examples/dhcp-offer.json" = "share/doc/dhcpt/examples/dhcp-offer.json"
 "completions/bash/dhcpt" = "share/bash-completion/completions/dhcpt"
 "completions/zsh/_dhcpt" = "share/zsh/site-functions/_dhcpt"
 
@@ -97,6 +98,7 @@ include = [
     "/skills",
     "/man",
     "/docs",
+    "/examples",
     "/README.md",
     "/LICENSE",
     "/CHANGELOG.md",

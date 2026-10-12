@@ -1672,3 +1672,21 @@ def test_send_and_receive_dhcp_l2_routed_gateway_mac() -> None:
         mock_build.assert_called_once()
         assert mock_build.call_args.kwargs.get("dst_mac") == "aa:bb:cc:dd:ee:fe"
         assert mock_build.call_args.kwargs.get("dst_ip") == "10.99.0.1"
+
+
+def test_example_dhcp_offer_json_valid() -> None:
+    """Verify that examples/dhcp-offer.json is valid JSON with required top-level keys and offer objects."""
+    root = Path(__file__).resolve().parent.parent
+    example_file = root / "examples" / "dhcp-offer.json"
+    assert example_file.is_file(), "Missing examples/dhcp-offer.json"
+    data = json.loads(example_file.read_text(encoding="utf-8"))
+    assert "interface" in data
+    assert "diagnostics" in data
+    assert "relay_simulation" in data
+    assert "cisco_relay_simulation" in data
+    assert "offers" in data
+    assert len(data["offers"]) >= 1
+    first_offer = data["offers"][0]
+    assert "server_ip" in first_offer
+    assert "offered_ip" in first_offer
+    assert "options_list" in first_offer
