@@ -39,6 +39,9 @@ LATEST_TAG=$(git ls-remote --tags --refs https://github.com/epicade/dhcpt.git | 
 sudo pipx install --global "git+https://github.com/epicade/dhcpt.git@${LATEST_TAG}"
 # Or install a specific version tag (e.g. @v0.1.1):
 # sudo pipx install --global git+https://github.com/epicade/dhcpt.git@<tag>
+
+# 3. Direct execution without binary installation (from git checkout):
+sudo env PYTHONPATH=src python3 -m dhcpt -i eth0
 ```
 
 ### Passwordless Execution for AI Agents / Automation
@@ -89,7 +92,7 @@ sudo dhcpt -i eth0 --dhcp-servers 10.1.1.1,10.1.1.2,10.1.1.3,10.1.1.4 --target-g
 ```
 
 * **Why `--target-gateway` (RFC 3527 Link Selection)?**
-  RFC 2131 dictates that DHCP servers reply to `giaddr`. Setting `--target-gateway <gateway_ip>` (or alias `--relay-subnet`) tells the DHCP server which address pool to allocate from — specifically, the gateway IP configured as the identifier for that VLAN in the DHCP server's subnet declaration. Meanwhile, `dhcpt` sets `giaddr` to your local machine IP so the DHCP server routes the reply directly back to you across routed networks.
+  RFC 2131 dictates that DHCP servers reply to `giaddr`. Setting `--target-gateway <gateway_ip>` (legacy alias `--relay-subnet` is deprecated and will be removed in v1.0.0) tells the DHCP server which address pool to allocate from — specifically, the gateway IP configured as the identifier for that VLAN in the DHCP server's subnet declaration. Meanwhile, `dhcpt` sets `giaddr` to your local machine IP so the DHCP server routes the reply directly back to you across routed networks.
 
 ### 5. Fast-Path: Constructing Remote Relay Queries
 When testing a remote subnet or VLAN without manually looking up the network device name:
@@ -126,6 +129,21 @@ sudo dhcpt -i eth0 --no-broadcast
 ```bash
 sudo dhcpt -i eth0 --json
 ```
+*The JSON structure includes link diagnostics and vendor-neutral relay parameters under the `relay_simulation` block (with `cisco_relay_simulation` mirrored for backward compatibility until v1.0.0).*
+
+### 9. Deploy AI Agent Skills (`--install-skill`)
+Install or update the `dhcpt` diagnostic skill for terminal coding assistants:
+```bash
+# Auto-detect installed assistants (Gemini CLI, Claude Code, Mistral Vibe):
+dhcpt --install-skill
+
+# Or install for a specific assistant:
+dhcpt --install-skill gemini
+dhcpt --install-skill claude
+
+# Force overwrite of existing skill files:
+dhcpt --install-skill --force
+```
 
 ---
 
@@ -133,7 +151,7 @@ sudo dhcpt -i eth0 --json
 
 * **`0` (Success):** All queried DHCP servers replied, or at least one Offer was captured on broadcast.
 * **`1` (No Offer / Failure):** Timed out with 0 DHCP Offers received, or raw socket permission failure.
-* **`2` (Usage / Syntax Error):** Missing required interface, invalid IP/MAC, or unknown DHCP option.
+* **`2` (Usage / Syntax Error):** Missing required interface, invalid IP/MAC, unknown DHCP option, or `--force` used outside of `--install-skill`.
 * **`3` (Partial Response):** Multi-server query (`-s`) where some servers replied but at least one timed out.
 
 ---

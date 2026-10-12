@@ -36,7 +36,7 @@
 - **Standard Exit Codes:**
   * `0`: Success (all queried DHCP servers replied, or local Offer captured).
   * `1`: Failure / Timeout (0 DHCP Offers received, or permission denied).
-  * `2`: CLI Usage / Syntax error (missing interface, invalid IP/MAC, unknown option).
+  * `2`: CLI Usage / Syntax error (missing interface, invalid IP/MAC, unknown option, or `--force` used outside of `--install-skill`).
   * `3`: Partial response (multi-server query where some servers replied but at least one timed out).
 
 ---
@@ -111,10 +111,10 @@ For verifying raw socket packet crafting, kernel routing, and DHCP options again
   ```bash
   make testbed-stop
   ```
-*Detailed Architecture:* See [`docs/testing-infrastruktur.md`](docs/testing-infrastruktur.md) for full topology diagrams and policy details.
+*Detailed Architecture:* See [`docs/testing-infrastructure.md`](docs/testing-infrastructure.md) for full topology diagrams and policy details.
 
 ### 3. Pre-Commit Git Hook
-The repository includes an automated pre-commit hook in `.githooks/pre-commit` that validates Ruff, ShellCheck, Zsh completion syntax, Pandoc manpage freshness, Kea configuration schemas, and Pytest on every commit. Ensure it is active locally:
+The repository includes an automated pre-commit hook in `.githooks/pre-commit` that validates Ruff, ShellCheck, Zsh completion syntax, Pandoc manpage freshness, YAML workflow syntax, Kea configuration schemas, and Pytest on every commit. Ensure it is active locally:
 ```bash
 git config core.hooksPath .githooks
 ```
