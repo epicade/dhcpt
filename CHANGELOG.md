@@ -22,6 +22,9 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 * Export public library networking functions and dataclasses in dhcpt.__init__
 
 ### Changes
+* Accelerate CLI startup and non-packet commands by lazily loading Scapy and importing targeted submodules
+* Prioritize pipx in make install-dev to avoid clobbering user CLI tools
+* Format --help examples with two-line layout for improved terminal readability
 * Explain curl-style verbose status indicators (*, >, <) and document JSON schema in UNIX manpage
 * Include tests directory in source distribution (sdist) for downstream package builders
 * Require explicit target DHCP servers (-s/--dhcp-servers) on Layer 3 interfaces and exit with code 2 if omitted
