@@ -66,20 +66,27 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-try:
-    from dhcpt import __version__
-except ImportError:
-    try:
-        from importlib.metadata import PackageNotFoundError, version
 
-        __version__ = version("dhcpt")
-    except (PackageNotFoundError, ImportError):
-        pkg_root = Path(__file__).resolve().parent.parent
-        if (pkg_root / "dhcpt" / "__init__.py").is_file() and str(pkg_root) not in sys.path:
-            sys.path.insert(0, str(pkg_root))
-            from dhcpt import __version__
-        else:
-            __version__ = "unknown"
+def _resolve_version() -> str:
+    """Resolve package version reliably across package installations, symlinks, and standalone checkouts."""
+    try:
+        from importlib.metadata import version
+
+        return version("dhcpt")
+    except Exception:
+        pass
+    try:
+        init_file = Path(__file__).resolve().parent / "__init__.py"
+        if init_file.is_file():
+            m = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', init_file.read_text(encoding="utf-8"))
+            if m:
+                return m.group(1)
+    except Exception:
+        pass
+    return "unknown"
+
+
+__version__ = _resolve_version()
 
 # Scapy is required for Layer 2 and Layer 3 packet crafting and sniffing
 try:

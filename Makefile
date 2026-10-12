@@ -20,36 +20,115 @@ install:  ## Install package globally via pipx for production use
 	fi
 	@echo "[OK] dhcpt installed globally into /usr/local/bin/dhcpt!"
 
-install-dev:  ## Set up development environment (lint tools, git hooks, editable pip, dev symlinks)
-	@echo "==> Checking development system packages (pandoc, shellcheck, man)..."
+install-dev:  ## Set up development environment (lint tools, git hooks, dev dependencies, dev symlinks)
+	@echo "==> Checking development system packages and Python dependencies..."
 	@PKGS=""; \
 	command -v pandoc >/dev/null 2>&1 || PKGS="$$PKGS pandoc"; \
 	command -v shellcheck >/dev/null 2>&1 || PKGS="$$PKGS shellcheck"; \
 	command -v man >/dev/null 2>&1 || PKGS="$$PKGS man-db groff"; \
+	$(PYTHON) -c "import scapy" >/dev/null 2>&1 || PKGS="$$PKGS python3-scapy"; \
+	$(PYTHON) -c "import pytest" >/dev/null 2>&1 || PKGS="$$PKGS python3-pytest"; \
+	$(PYTHON) -c "import pytest_mock" >/dev/null 2>&1 || PKGS="$$PKGS python3-pytest-mock"; \
+	$(PYTHON) -c "import yaml" >/dev/null 2>&1 || PKGS="$$PKGS python3-yaml"; \
 	if [ -n "$$PKGS" ]; then \
 		if command -v apt-get >/dev/null 2>&1; then \
-			echo "Installing missing development tools via apt-get:$$PKGS"; \
+			echo "Installing missing development dependencies via apt-get:$$PKGS"; \
 			DEBIAN_FRONTEND=noninteractive $(SUDO) apt-get update && DEBIAN_FRONTEND=noninteractive $(SUDO) apt-get install -y --no-install-recommends $$PKGS; \
 		elif command -v dnf >/dev/null 2>&1; then \
-			echo "Installing missing development tools via dnf:$$PKGS"; \
+			echo "Installing missing development dependencies via dnf:$$PKGS"; \
 			$(SUDO) dnf install -y $$PKGS; \
 		elif command -v pacman >/dev/null 2>&1; then \
-			echo "Installing missing development tools via pacman:$$PKGS"; \
+			echo "Installing missing development dependencies via pacman:$$PKGS"; \
 			$(SUDO) pacman -S --needed --noconfirm $$PKGS; \
 		fi; \
 	fi
+	@if ! command -v ruff >/dev/null 2>&1; then \
+		echo "Installing ruff linter via pip..."; \
+		$(PYTHON) -m pip install ruff 2>/dev/null || $(PYTHON) -m pip install --break-system-packages ruff 2>/dev/null || true; \
+	fi
 	@echo "==> Configuring Git pre-commit hooks..."
 	@git config core.hooksPath .githooks 2>/dev/null || true
-	@echo "==> Installing Python package and dev dependencies in editable mode..."
-	@$(PYTHON) -m pip install -e .[dev] 2>/dev/null || $(PYTHON) -m pip install --break-system-packages -e .[dev] 2>/dev/null || true
-	@echo "==> Setting up instant live-testing symlink to /usr/local/bin/dhcpt..."
+	@echo "==> Setting up development symlinks in /usr/local..."
 	@$(SUDO) ln -sf "$$(pwd)/src/dhcpt/cli.py" /usr/local/bin/dhcpt 2>/dev/null || true
 	@$(SUDO) chmod +x "$$(pwd)/src/dhcpt/cli.py" 2>/dev/null || true
-	@echo "==> Symlinking manpage and shell completions for development..."
 	@$(SUDO) mkdir -p /usr/local/share/man/man1 /usr/local/share/bash-completion/completions /usr/local/share/zsh/site-functions 2>/dev/null || true
 	@$(SUDO) ln -sf "$$(pwd)/man/dhcpt.1" /usr/local/share/man/man1/dhcpt.1 2>/dev/null || true
 	@$(SUDO) ln -sf "$$(pwd)/completions/bash/dhcpt" /usr/local/share/bash-completion/completions/dhcpt 2>/dev/null || true
 	@$(SUDO) ln -sf "$$(pwd)/completions/zsh/_dhcpt" /usr/local/share/zsh/site-functions/_dhcpt 2>/dev/null || true
+	@echo "==> Verifying development environment resolution..."
+	@ALL_BINS=$$(which -a dhcpt 2>/dev/null || command -v dhcpt 2>/dev/null || true); \
+	ACTIVE_BIN=$$(echo "$$ALL_BINS" | head -n1); \
+	if [ -n "$$ACTIVE_BIN" ]; then \
+		ACTIVE_TARGET=$$(readlink -f "$$ACTIVE_BIN" 2>/dev/null || echo "$$ACTIVE_BIN"); \
+		if [ "$$ACTIVE_TARGET" = "$$(pwd)/src/dhcpt/cli.py" ]; then \
+			echo "  [OK] Active binary       : $$ACTIVE_BIN -> $$ACTIVE_TARGET"; \
+		else \
+			echo "  [WARN] Active binary     : $$ACTIVE_BIN does not point to current repository! ($$ACTIVE_TARGET)"; \
+		fi; \
+		NUM_BINS=$$(echo "$$ALL_BINS" | grep -v '^$$' | wc -l); \
+		if [ "$$NUM_BINS" -gt 1 ]; then \
+			echo "  [WARN] Multiple 'dhcpt' binaries found in PATH:"; \
+			for b in $$ALL_BINS; do \
+				if [ "$$b" != "$$ACTIVE_BIN" ]; then \
+					echo "         -> Shadowed: $$b ($$(readlink -f "$$b" 2>/dev/null || echo "file"))"; \
+				fi; \
+			done; \
+			echo "         (Consider removing shadowed copies to prevent version drift)"; \
+		fi; \
+	else \
+		echo "  [WARN] Active binary     : 'dhcpt' not found in PATH!"; \
+	fi
+	@if command -v sudo >/dev/null 2>&1; then \
+		SUDO_VER=$$($(SUDO) dhcpt --version 2>&1 || true); \
+		if echo "$$SUDO_VER" | grep -q "^dhcpt "; then \
+			echo "  [OK] Sudo execution      : $$SUDO_VER ($$($(SUDO) which dhcpt 2>/dev/null))"; \
+		else \
+			echo "  [WARN] Sudo execution    : 'sudo dhcpt --version' failed! ($$SUDO_VER)"; \
+		fi; \
+	fi
+	@RESOLVED_MAN=$$(man -w dhcpt 2>/dev/null || true); \
+	if [ -n "$$RESOLVED_MAN" ]; then \
+		MAN_TARGET=$$(readlink -f "$$RESOLVED_MAN" 2>/dev/null || echo "$$RESOLVED_MAN"); \
+		if [ "$$MAN_TARGET" = "$$(pwd)/man/dhcpt.1" ]; then \
+			echo "  [OK] Manpage resolution  : $$RESOLVED_MAN -> $$MAN_TARGET"; \
+		else \
+			echo "  [WARN] Manpage resolution: $$RESOLVED_MAN ($$MAN_TARGET) does not link to $$(pwd)/man/dhcpt.1!"; \
+		fi; \
+	else \
+		echo "  [WARN] Manpage resolution: 'dhcpt' not found by 'man -w dhcpt'"; \
+	fi
+	@if command -v zsh >/dev/null 2>&1; then \
+		ZSH_OUT=$$(zsh -i -c 'autoload +X -U _dhcpt 2>/dev/null && whence -v _dhcpt' 2>/dev/null || true); \
+		ZSH_FILE=$$(echo "$$ZSH_OUT" | grep -oP '(?<=from )\S+' 2>/dev/null || true); \
+		if [ -n "$$ZSH_FILE" ]; then \
+			ZSH_TARGET=$$(readlink -f "$$ZSH_FILE" 2>/dev/null || echo "$$ZSH_FILE"); \
+			if [ "$$ZSH_TARGET" = "$$(pwd)/completions/zsh/_dhcpt" ]; then \
+				echo "  [OK] Zsh completion      : active from $$ZSH_FILE -> $$ZSH_TARGET"; \
+			else \
+				echo "  [WARN] Zsh completion    : active from $$ZSH_FILE (shadowing $$(pwd)/completions/zsh/_dhcpt)!"; \
+			fi; \
+		else \
+			if zsh -f -c 'fpath=(/usr/local/share/zsh/site-functions $$fpath); autoload +X -U _dhcpt' >/dev/null 2>&1; then \
+				echo "  [OK] Zsh completion      : autoloadable via /usr/local/share/zsh/site-functions/_dhcpt"; \
+			else \
+				echo "  [WARN] Zsh completion    : not found in zsh fpath"; \
+			fi; \
+		fi; \
+	fi
+	@BASH_COMP=""; \
+	for p in "$$HOME/.local/share/bash-completion/completions/dhcpt" "/usr/local/share/bash-completion/completions/dhcpt" "/etc/bash_completion.d/dhcpt"; do \
+		if [ -e "$$p" ]; then BASH_COMP="$$p"; break; fi; \
+	done; \
+	if [ -n "$$BASH_COMP" ]; then \
+		BASH_TARGET=$$(readlink -f "$$BASH_COMP" 2>/dev/null || echo "$$BASH_COMP"); \
+		if [ "$$BASH_TARGET" = "$$(pwd)/completions/bash/dhcpt" ]; then \
+			echo "  [OK] Bash completion     : $$BASH_COMP -> $$BASH_TARGET"; \
+		else \
+			echo "  [WARN] Bash completion   : $$BASH_COMP does not point to $$(pwd)/completions/bash/dhcpt!"; \
+		fi; \
+	else \
+		echo "  [WARN] Bash completion   : no completion file found in standard search paths"; \
+	fi
 	@echo "[OK] Development environment ready! Git hooks active, edits in src/dhcpt/cli.py are live."
 
 install-testbed:  ## Install system packages for live Kea testbed (Kea, Scapy, Jq, Busybox)
