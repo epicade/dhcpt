@@ -43,8 +43,13 @@ install-dev:  ## Set up development environment (lint tools, git hooks, dev depe
 		fi; \
 	fi
 	@if ! command -v ruff >/dev/null 2>&1; then \
-		echo "Installing ruff linter via pip..."; \
-		$(PYTHON) -m pip install ruff 2>/dev/null || $(PYTHON) -m pip install --break-system-packages ruff 2>/dev/null || true; \
+		if command -v pipx >/dev/null 2>&1; then \
+			echo "Installing ruff linter via pipx..."; \
+			pipx install ruff; \
+		else \
+			echo "==> ERROR: 'ruff' is missing. Please install it via 'pipx install ruff' or your package manager." >&2; \
+			exit 1; \
+		fi; \
 	fi
 	@echo "==> Configuring Git pre-commit hooks..."
 	@git config core.hooksPath .githooks 2>/dev/null || true
