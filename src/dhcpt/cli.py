@@ -64,7 +64,18 @@ import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from scapy.arch import get_if_addr, get_if_hwaddr
+    from scapy.config import conf
+    from scapy.error import Scapy_Exception
+    from scapy.layers.dhcp import BOOTP, DHCP, DHCPRevOptions, DHCPTypes
+    from scapy.layers.inet import IP, UDP
+    from scapy.layers.l2 import ARP, Ether
+    from scapy.sendrecv import sr, srp
+
+    SCAPY_AVAILABLE: bool
 
 
 def _resolve_version() -> str:
@@ -88,45 +99,129 @@ def _resolve_version() -> str:
 
 __version__ = _resolve_version()
 
-# Scapy is required for Layer 2 and Layer 3 packet crafting and sniffing
-try:
-    from scapy.all import (
-        ARP,
-        BOOTP,
-        DHCP,
-        IP,
-        UDP,
-        Ether,
-        conf,
-        get_if_addr,
-        get_if_hwaddr,
-        sr,
-        srp,
-    )
-    from scapy.error import Scapy_Exception
-    from scapy.layers.dhcp import DHCPOptions, DHCPRevOptions, DHCPTypes
+# Scapy is required for Layer 2 and Layer 3 packet crafting and sniffing.
+# Submodules are loaded lazily on demand via _load_scapy() and PEP 562 __getattr__
+# to avoid heavy startup overhead (~1.5s) on non-packet invocations (--help, --version,
+# --list-options, --list-interfaces, shell completions).
+_SCAPY_NAMES = {
+    "conf",
+    "Scapy_Exception",
+    "get_if_addr",
+    "get_if_hwaddr",
+    "BOOTP",
+    "DHCP",
+    "DHCPOptions",
+    "DHCPRevOptions",
+    "DHCPTypes",
+    "IP",
+    "UDP",
+    "ARP",
+    "Ether",
+    "sr",
+    "srp",
+    "SCAPY_AVAILABLE",
+}
 
-    SCAPY_AVAILABLE = True
-except ImportError:
-    SCAPY_AVAILABLE = False
 
-    class Scapy_Exception(Exception):  # type: ignore[no-redef]
-        pass
+def _load_scapy() -> bool:
+    """Lazily load Scapy Layer 2/3 and DHCP submodules on demand.
 
-    ARP = Any  # type: ignore[misc,assignment]
-    BOOTP = Any  # type: ignore[misc,assignment]
-    DHCP = Any  # type: ignore[misc,assignment]
-    Ether = Any  # type: ignore[misc,assignment]
-    IP = Any  # type: ignore[misc,assignment]
-    UDP = Any  # type: ignore[misc,assignment]
-    conf = Any  # type: ignore[misc,assignment]
-    get_if_addr = Any  # type: ignore[misc,assignment]
-    get_if_hwaddr = Any  # type: ignore[misc,assignment]
-    sr = Any  # type: ignore[misc,assignment]
-    srp = Any  # type: ignore[misc,assignment]
-    DHCPOptions = {}  # type: ignore[misc,assignment]
-    DHCPRevOptions = {}  # type: ignore[misc,assignment]
-    DHCPTypes = {}  # type: ignore[misc,assignment]
+    Imports targeted submodules (scapy.layers.l2, inet, dhcp, config, arch, sendrecv)
+    rather than scapy.all, eliminating overhead from unrelated protocols (TLS, SMB,
+    Kerberos, X.509, Crypto).
+    """
+    g = globals()
+    if g.get("_SCAPY_LOADED"):
+        return bool(g.get("SCAPY_AVAILABLE", True))
+
+    try:
+        from scapy.arch import get_if_addr as _addr
+        from scapy.arch import get_if_hwaddr as _hwaddr
+        from scapy.config import conf as _conf
+        from scapy.error import Scapy_Exception as _scapy_exc
+        from scapy.layers.dhcp import (
+            BOOTP as _bootp,
+        )
+        from scapy.layers.dhcp import (
+            DHCP as _dhcp,
+        )
+        from scapy.layers.dhcp import (
+            DHCPOptions as _opts,
+        )
+        from scapy.layers.dhcp import (
+            DHCPRevOptions as _revopts,
+        )
+        from scapy.layers.dhcp import (
+            DHCPTypes as _types,
+        )
+        from scapy.layers.inet import IP as _ip
+        from scapy.layers.inet import UDP as _udp
+        from scapy.layers.l2 import ARP as _arp
+        from scapy.layers.l2 import Ether as _ether
+        from scapy.sendrecv import sr as _sr
+        from scapy.sendrecv import srp as _srp
+
+        symbols: dict[str, Any] = {
+            "get_if_addr": _addr,
+            "get_if_hwaddr": _hwaddr,
+            "conf": _conf,
+            "Scapy_Exception": _scapy_exc,
+            "BOOTP": _bootp,
+            "DHCP": _dhcp,
+            "DHCPOptions": _opts,
+            "DHCPRevOptions": _revopts,
+            "DHCPTypes": _types,
+            "IP": _ip,
+            "UDP": _udp,
+            "ARP": _arp,
+            "Ether": _ether,
+            "sr": _sr,
+            "srp": _srp,
+            "SCAPY_AVAILABLE": True,
+        }
+        for k, v in symbols.items():
+            if k not in g:
+                g[k] = v
+        g["_SCAPY_LOADED"] = True
+        return bool(g.get("SCAPY_AVAILABLE", True))
+    except ImportError:
+
+        class _FallbackScapyException(Exception):
+            pass
+
+        defaults: dict[str, Any] = {
+            "get_if_addr": Any,
+            "get_if_hwaddr": Any,
+            "conf": Any,
+            "Scapy_Exception": _FallbackScapyException,
+            "BOOTP": Any,
+            "DHCP": Any,
+            "DHCPOptions": {},
+            "DHCPRevOptions": {},
+            "DHCPTypes": {},
+            "IP": Any,
+            "UDP": Any,
+            "ARP": Any,
+            "Ether": Any,
+            "sr": Any,
+            "srp": Any,
+            "SCAPY_AVAILABLE": False,
+        }
+        for k, v in defaults.items():
+            if k not in g:
+                g[k] = v
+        g["_SCAPY_LOADED"] = True
+        return False
+
+
+def __getattr__(name: str) -> Any:
+    """Provide transparent on-demand access to Scapy symbols via PEP 562."""
+    if name in _SCAPY_NAMES:
+        _load_scapy()
+        if name in globals():
+            return globals()[name]
+    raise AttributeError(f"module '{__name__}' has no attribute '{name}'")
+
 
 LOGGER = logging.getLogger("dhcpt")
 
@@ -525,6 +620,7 @@ def decode_rfc3397_domain_search(raw: bytes) -> list[str]:
 
 def format_packet_tree(pkt: Any, direction: str = ">", title: str = "") -> str:
     """Format a Scapy packet into a clean, human-readable layered ASCII tree."""
+    _load_scapy()
     lines: list[str] = []
     prefix = ">" if direction == ">" else "<"
     pkt_len = len(bytes(pkt)) if hasattr(pkt, "__bytes__") or hasattr(pkt, "__len__") else 0
@@ -730,7 +826,7 @@ def get_available_interfaces() -> list[dict[str, Any]]:
 
 def resolve_mac_via_arp(ip: str, iface: str, timeout: float = 1.0) -> str | None:
     """Actively resolve MAC address for an IP address via Scapy ARP ping."""
-    if not SCAPY_AVAILABLE:
+    if not _load_scapy():
         return None
     try:
         ans, _ = srp(
@@ -830,7 +926,7 @@ def get_route_for_ip(ip: str) -> RouteInfo:
         pass
 
     # 2. Secondary fallback: consult Scapy's internal routing table
-    if SCAPY_AVAILABLE:
+    if _load_scapy():
         try:
             from scapy.config import conf
 
@@ -873,6 +969,7 @@ def is_layer3_interface(interface: str) -> bool:
 
 def parse_dhcp_packet(pkt: Any) -> DHCPOffer:
     """Extract and structure DHCP offer parameters from a received Scapy frame."""
+    _load_scapy()
     server_ip = str(pkt[IP].src) if pkt.haslayer(IP) else "unknown"
     server_mac = str(pkt[Ether].src) if pkt.haslayer(Ether) else "n/a (Layer 3)"
     offered_ip = str(pkt[BOOTP].yiaddr) if pkt.haslayer(BOOTP) else "0.0.0.0"
@@ -1075,6 +1172,7 @@ def build_dhcp_discover(
     Returns:
         Scapy packet object ready for transmission via srp() (Layer 2) or sr() (Layer 3).
     """
+    _load_scapy()
     if param_req_list is None:
         param_req_list = list(DEFAULT_REQUEST_OPTIONS)
 
@@ -1159,7 +1257,7 @@ def send_and_receive_dhcp(
     if target_gateway is None and relay_subnet is not None:
         target_gateway = relay_subnet
 
-    if not SCAPY_AVAILABLE:
+    if not _load_scapy():
         raise RuntimeError("Scapy is not installed. Please install python3-scapy via your package manager.")
 
     if param_req_list is None:
@@ -1574,12 +1672,23 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
 Examples:
-  sudo dhcpt -i eth0                               # Standard broadcast check on eth0
-  sudo dhcpt -i eth0 --dhcp-servers 192.0.2.1 --target-gateway 10.50.1.1 # Relay simulation (RFC 3527)
-  sudo dhcpt -i eth0 --all --timeout 5             # Listen for all answering servers (detect rogue DHCP)
-  sudo dhcpt -i eth0 --json                        # Structured JSON output for monitoring / scripts
-  dhcpt --list-options                             # Show all supported RFC DHCP options (Option 55)
-  dhcpt --list-interfaces                          # Show local network interfaces and link states
+  # Standard broadcast check on eth0:
+  sudo dhcpt -i eth0
+
+  # Relay simulation (RFC 3527):
+  sudo dhcpt -i eth0 --dhcp-servers 192.0.2.1 --target-gateway 10.50.1.1
+
+  # Listen for all answering servers (detect rogue DHCP):
+  sudo dhcpt -i eth0 --all --timeout 5
+
+  # Structured JSON output for monitoring / scripts:
+  sudo dhcpt -i eth0 --json
+
+  # Show all supported RFC DHCP options (Option 55):
+  dhcpt --list-options
+
+  # Show local network interfaces and link states:
+  dhcpt --list-interfaces
 
 Documentation & Relay Mechanics:
   See 'man dhcpt' or https://github.com/epicade/dhcpt for full RFC 3527 Link Selection details and vendor configuration examples (e.g. Cisco, Juniper).
@@ -2079,7 +2188,7 @@ def _run(argv: list[str] | None = None) -> int:
     if not req_options:
         LOGGER.warning("Option 55 Parameter Request List is empty (no options requested).")
 
-    if not SCAPY_AVAILABLE:
+    if not _load_scapy():
         LOGGER.error("Python module 'scapy' is required but not installed.")
         LOGGER.error("Install scapy via package manager: 'pip install scapy' or 'apt/dnf install python3-scapy'.")
         return 1
