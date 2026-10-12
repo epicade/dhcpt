@@ -161,4 +161,19 @@ if [ -n "$changed_py_files" ] || [ -n "$changed_pyproject" ]; then
     PYTHONPATH=src pytest -q
 fi
 
+# 8. Validate modified YAML files (GitHub Actions workflows, configs)
+changed_yaml_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E '\.(ya?ml)$' || true)
+if [ -n "$changed_yaml_files" ]; then
+    echo "[pre-commit] Validating YAML syntax of modified files..."
+    for file in $changed_yaml_files; do
+        if [ -f "$file" ]; then
+            echo "  -> yaml.safe_load $file"
+            if ! python3 -c "import yaml, sys; yaml.safe_load(open(sys.argv[1], encoding='utf-8'))" "$file"; then
+                echo "[ERROR] Invalid YAML syntax detected in '$file'!" >&2
+                exit 1
+            fi
+        fi
+    done
+fi
+
 echo "[pre-commit] All staged checks passed successfully!"
