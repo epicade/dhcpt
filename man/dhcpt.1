@@ -22,6 +22,10 @@ utility
 .P
 .PD
 \f[B]dhcpt\f[R] \f[B]\-\-install\-skill\f[R] [\f[I]TARGET\f[R]]
+.PD 0
+.P
+.PD
+\f[B]python3 \-m dhcpt\f[R] [\f[I]OPTIONS\f[R]] [\f[I]INTERFACE\f[R]]
 .SH DESCRIPTION
 \f[B]dhcpt\f[R] is a Layer 2 and Layer 3 DHCP testing and diagnostic
 tool for Linux.
@@ -70,7 +74,7 @@ When querying remote servers, \f[B]dhcpt\f[R] sets the BOOTP gateway
 field (\f[I]giaddr\f[R]) to the local interface IP.
 This ensures the server routes the reply directly back to your machine.
 \f[I]Deprecated aliases:\f[R] \f[CR]\-\-server\f[R],
-\f[CR]\-\-servers\f[R] (will be removed in a future release).
+\f[CR]\-\-servers\f[R] (will be removed in v1.0.0).
 .TP
 \f[B]\-\-target\-gateway\f[R] \f[I]GATEWAY_IP\f[R]
 Simulate a remote subnet using RFC 3527 Link Selection (Option 82
@@ -83,7 +87,7 @@ so the reply returns to you.
 Use this option to test VLAN\-specific or subnet\-specific DHCP
 allocation rules without physical access to that network segment.
 \f[I]Deprecated alias:\f[R] \f[CR]\-\-relay\-subnet\f[R] (will be
-removed in a future release).
+removed in v1.0.0).
 .TP
 \f[B]\-\-circuit\-id\f[R] \f[I]CIRCUIT_ID\f[R]
 Inject Option 82 Sub\-option 1 (Agent Circuit ID) per RFC 3046 (e.g.
@@ -201,6 +205,8 @@ explicitly specified.
 \f[B]\-\-force\f[R]
 Force overwrite of existing skill files or symlinks during
 \f[B]\-\-install\-skill\f[R].
+Only valid in combination with \f[B]\-\-install\-skill\f[R]; exiting
+with code 2 if supplied during normal packet operations.
 .TP
 \f[B]\-\-completion\f[R] {\f[I]zsh\f[R],\f[I]bash\f[R]}
 Generate shell completion script for Zsh or Bash to standard output,
@@ -258,6 +264,23 @@ option.
 3
 Partial response: multi\-server query (\f[B]\-s\f[R]) where some servers
 answered but at least one timed out.
+.SH OUTPUT FORMAT & STREAMS
+.TP
+\f[B]Standard Output (stdout)\f[R]
+When DHCP Offers are received, human\-readable offer reports are written
+to standard output.
+When \f[B]\-\-json\f[R] (\f[B]\-j\f[R]) is supplied, complete structured
+JSON is always written to standard output, including link diagnostics
+and error metadata, ensuring reliable parsing in monitoring checks.
+.TP
+\f[B]Standard Error (stderr)\f[R]
+In standard text mode, if zero DHCP Offers are received within the
+timeout window (exit code 1), a concise single\-line failure message and
+link\-state diagnostics are emitted to standard error.
+This guarantees standard output remains empty for automated pipeline
+consumers.
+CLI usage errors (exit code 2) and deprecation warnings are likewise
+emitted to standard error.
 .SH EXAMPLES
 Standard local broadcast check:
 .IP
@@ -383,5 +406,17 @@ DHCP Relay Architecture Guide: \c
 .UE \c
 \ (installed locally at
 \f[I]/usr/share/doc/dhcpt/relay\-mechanics.md\f[R])
+.PP
+Python Library Usage Guide: \c
+.UR https://github.com/epicade/dhcpt/blob/main/docs/library-usage.md
+.UE \c
+\ (installed locally at
+\f[I]/usr/share/doc/dhcpt/library\-usage.md\f[R])
+.PP
+Testing Infrastructure Guide: \c
+.UR https://github.com/epicade/dhcpt/blob/main/docs/testing-infrastructure.md
+.UE \c
+\ (installed locally at
+\f[I]/usr/share/doc/dhcpt/testing\-infrastructure.md\f[R])
 .SH AUTHORS
 Emilian Schweikert.
