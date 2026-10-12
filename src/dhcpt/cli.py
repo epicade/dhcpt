@@ -1113,9 +1113,10 @@ def send_and_receive_dhcp(
     param_req_list: list[int] | None = None,
     servers: list[str] | None = None,
     giaddr: str | None = None,
-    relay_subnet: str | None = None,
+    target_gateway: str | None = None,
     circuit_id: str | None = None,
     remote_id: str | None = None,
+    relay_subnet: str | None = None,  # DEPRECATED alias for target_gateway (scheduled for removal in v1.0.0)
 ) -> list[DHCPOffer]:
     """Transmit DHCP Discover (broadcast or unicast relay simulation) and collect Offer responses.
 
@@ -1136,9 +1137,10 @@ def send_and_receive_dhcp(
         param_req_list: Option codes to request in Option 55 (PRL).
         servers: Optional list of dedicated DHCP server IPs/FQDNs to query via unicast.
         giaddr: Explicit BOOTP relay gateway IP override.
-        relay_subnet: Target subnet gateway IP for RFC 3527 Link Selection.
+        target_gateway: Target subnet gateway IP for RFC 3527 Link Selection.
         circuit_id: Option 82 Sub-option 1 Circuit ID.
         remote_id: Option 82 Sub-option 2 Remote ID.
+        relay_subnet: Deprecated alias for target_gateway.
 
     Returns:
         List of decoded DHCPOffer objects received from responding DHCP servers.
@@ -1147,6 +1149,9 @@ def send_and_receive_dhcp(
         RuntimeError: If Scapy is not available.
         PermissionError: If insufficient privileges to open raw sockets.
     """
+    if target_gateway is None and relay_subnet is not None:
+        target_gateway = relay_subnet
+
     if not SCAPY_AVAILABLE:
         raise RuntimeError("Scapy is not installed. Please install python3-scapy via your package manager.")
 
@@ -1162,11 +1167,11 @@ def send_and_receive_dhcp(
         LOGGER.debug("Could not determine local IP on '%s': %s", interface, err)
 
     option_82_data: bytes | None = None
-    if circuit_id or remote_id or relay_subnet:
+    if circuit_id or remote_id or target_gateway:
         option_82_data = build_option_82(
             circuit_id=circuit_id,
             remote_id=remote_id,
-            link_selection=relay_subnet,
+            link_selection=target_gateway,
         )
         LOGGER.debug("* [opt82] Option 82 payload assembled: %s", option_82_data.hex())
 
@@ -1175,7 +1180,7 @@ def send_and_receive_dhcp(
     if giaddr:
         effective_giaddr = giaddr
         hops = 1
-    elif relay_subnet:
+    elif target_gateway:
         effective_giaddr = local_ip if local_ip != "0.0.0.0" else "0.0.0.0"
         hops = 1
 
@@ -1271,14 +1276,14 @@ def send_and_receive_dhcp(
     else:
         LOGGER.info("* Mode: Layer 2 Broadcast to 255.255.255.255:67")
 
-    if circuit_id or remote_id or relay_subnet:
+    if circuit_id or remote_id or target_gateway:
         opt82_parts: list[str] = []
         if circuit_id:
             opt82_parts.append(f"circuit_id='{circuit_id}'")
         if remote_id:
             opt82_parts.append(f"remote_id='{remote_id}'")
-        if relay_subnet:
-            opt82_parts.append(f"target_gateway={relay_subnet}")
+        if target_gateway:
+            opt82_parts.append(f"target_gateway={target_gateway}")
         if effective_giaddr != "0.0.0.0":
             opt82_parts.append(f"giaddr={effective_giaddr}")
         LOGGER.info("* Option 82: %s", ", ".join(opt82_parts))
@@ -1374,19 +1379,23 @@ def format_offers_text(
     servers: list[str] | None = None,
     circuit_id: str | None = None,
     remote_id: str | None = None,
-    relay_subnet: str | None = None,
+    target_gateway: str | None = None,
+    relay_subnet: str | None = None,  # DEPRECATED alias for target_gateway (scheduled for removal in v1.0.0)
 ) -> str:
     """Format offers into a human-readable text report."""
+    if target_gateway is None and relay_subnet is not None:
+        target_gateway = relay_subnet
+
     lines: list[str] = []
 
-    if servers or circuit_id or remote_id or relay_subnet:
+    if servers or circuit_id or remote_id or target_gateway:
         lines.append("=" * 70)
         lines.append("DHCP RELAY AGENT & IP-HELPER SIMULATION PARAMETERS")
         lines.append("=" * 70)
         if servers:
             lines.append(f"  Target DHCP Servers   : {', '.join(servers)}")
-        if relay_subnet:
-            lines.append(f"  Target Relay Subnet   : {relay_subnet}  (RFC 3527 Link Selection)")
+        if target_gateway:
+            lines.append(f"  Target Relay Subnet   : {target_gateway}  (RFC 3527 Link Selection)")
         if circuit_id:
             lines.append(f"  Circuit-ID (Opt 82 s1): {circuit_id}  (Interface / VLAN Identifier)")
         if remote_id:
@@ -1517,19 +1526,31 @@ def format_offers_json(
     servers: list[str] | None = None,
     circuit_id: str | None = None,
     remote_id: str | None = None,
-    relay_subnet: str | None = None,
+    target_gateway: str | None = None,
+    relay_subnet: str | None = None,  # DEPRECATED alias for target_gateway (scheduled for removal in v1.0.0)
 ) -> str:
     """Format offers into structured JSON output."""
+    if target_gateway is None and relay_subnet is not None:
+        target_gateway = relay_subnet
+
     payload = {
         "interface": interface,
         "diagnostics": diagnostics,
         "timeout": timeout,
         "requested_options": requested_options or DEFAULT_REQUEST_OPTIONS,
         "servers": servers or [],
+        # DEPRECATED: 'cisco_relay_simulation' is deprecated since v0.2.0 and will be removed in v1.0.0.
+        # Use 'relay_simulation' instead.
         "cisco_relay_simulation": {
             "circuit_id": circuit_id,
             "remote_id": remote_id,
-            "relay_subnet": relay_subnet,
+            "relay_subnet": target_gateway,
+        },
+        "relay_simulation": {
+            "circuit_id": circuit_id,
+            "remote_id": remote_id,
+            "target_gateway": target_gateway,
+            "relay_subnet": target_gateway,  # Deprecated alias for backwards compatibility
         },
         "offers_count": len(offers),
         "distinct_servers_count": len({o.server_id or o.server_ip for o in offers}),
@@ -1584,6 +1605,7 @@ Documentation & Relay Mechanics:
         metavar="DHCP_SERVERS",
         help="Target one or more remote DHCP servers directly via unicast (comma-separated). Corresponds to ip helper-address target on routers/switches.",
     )
+    # DEPRECATED: '--server' and '--servers' are deprecated since v0.2.0 and will be removed in v1.0.0.
     relay_group.add_argument(
         "--server",
         "--servers",
@@ -1594,15 +1616,16 @@ Documentation & Relay Mechanics:
     )
     relay_group.add_argument(
         "--target-gateway",
-        dest="relay_subnet",
+        dest="target_gateway",
         type=str,
         default=None,
         metavar="GATEWAY_IP",
         help="Simulate originating from a remote subnet by specifying the gateway IP defined for that pool in the DHCP server configuration (RFC 3527 Link Selection). Instructs the server which pool to allocate from while routing replies back to the tester.",
     )
+    # DEPRECATED: '--relay-subnet' is deprecated since v0.2.0 and will be removed in v1.0.0.
     relay_group.add_argument(
         "--relay-subnet",
-        dest="relay_subnet",
+        dest="target_gateway",
         type=str,
         default=None,
         help=argparse.SUPPRESS,
@@ -1955,17 +1978,21 @@ def _run(argv: list[str] | None = None) -> int:
 
     setup_logging(debug=args.debug, verbose=args.verbose)
 
+    if args.force and not args.install_skill:
+        LOGGER.error("Option '--force' is only valid when combined with '--install-skill'.")
+        return 2
+
     raw_args = list(sys.argv[1:] if argv is None else argv)
     if any(arg in ("--server", "--servers") or arg.startswith(("--server=", "--servers=")) for arg in raw_args):
         warn_msg = (
-            "Option '--server' / '--servers' is deprecated and will be removed in a future release. "
+            "Option '--server' / '--servers' is deprecated and will be removed in v1.0.0. "
             "Please use '-s' / '--dhcp-server' / '--dhcp-servers' instead."
         )
         print(f"dhcpt: warning: {warn_msg}", file=sys.stderr)
 
     if any(arg == "--relay-subnet" or arg.startswith("--relay-subnet=") for arg in raw_args):
         warn_msg = (
-            "Option '--relay-subnet' is deprecated and will be removed in a future release. "
+            "Option '--relay-subnet' is deprecated and will be removed in v1.0.0. "
             "Please use '--target-gateway' instead."
         )
         print(f"dhcpt: warning: {warn_msg}", file=sys.stderr)
@@ -1993,11 +2020,11 @@ def _run(argv: list[str] | None = None) -> int:
             LOGGER.error("%s", err)
             return 2
 
-    if args.relay_subnet:
+    if args.target_gateway:
         try:
-            ipaddress.IPv4Address(args.relay_subnet.strip())
+            ipaddress.IPv4Address(args.target_gateway.strip())
         except ValueError:
-            LOGGER.error("Invalid IPv4 address for --target-gateway: '%s'", args.relay_subnet)
+            LOGGER.error("Invalid IPv4 address for --target-gateway: '%s'", args.target_gateway)
             return 2
 
     if args.giaddr:
@@ -2127,7 +2154,7 @@ def _run(argv: list[str] | None = None) -> int:
             param_req_list=req_options,
             servers=server_list,
             giaddr=args.giaddr,
-            relay_subnet=args.relay_subnet,
+            target_gateway=args.target_gateway,
             circuit_id=args.circuit_id,
             remote_id=args.remote_id,
         )
@@ -2162,7 +2189,7 @@ def _run(argv: list[str] | None = None) -> int:
                     servers=server_list,
                     circuit_id=args.circuit_id,
                     remote_id=args.remote_id,
-                    relay_subnet=args.relay_subnet,
+                    target_gateway=args.target_gateway,
                 )
             )
         else:
@@ -2176,7 +2203,7 @@ def _run(argv: list[str] | None = None) -> int:
                     servers=server_list,
                     circuit_id=args.circuit_id,
                     remote_id=args.remote_id,
-                    relay_subnet=args.relay_subnet,
+                    target_gateway=args.target_gateway,
                 ),
                 file=sys.stderr,
             )
@@ -2193,7 +2220,7 @@ def _run(argv: list[str] | None = None) -> int:
                 servers=server_list,
                 circuit_id=args.circuit_id,
                 remote_id=args.remote_id,
-                relay_subnet=args.relay_subnet,
+                target_gateway=args.target_gateway,
             )
         )
     else:
@@ -2207,7 +2234,7 @@ def _run(argv: list[str] | None = None) -> int:
                 servers=server_list,
                 circuit_id=args.circuit_id,
                 remote_id=args.remote_id,
-                relay_subnet=args.relay_subnet,
+                target_gateway=args.target_gateway,
             )
         )
 
