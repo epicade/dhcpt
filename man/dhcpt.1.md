@@ -1,4 +1,4 @@
-% DHCPT(1) dhcpt 0.1.1 | User Commands
+% DHCPT(1) dhcpt 0.2.0 | User Commands
 % Emilian Schweikert
 % October 2026
 

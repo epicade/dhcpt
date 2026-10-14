@@ -9,6 +9,18 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 ---
 
 ### New
+
+### Changes
+
+### Fixes
+
+### Breaks
+
+
+## 0.2.0 - (2026-10-14)
+---
+
+### New
 * Document zero-risk local namespace testbed sandbox for safe offline evaluation in README and skill
 * Add comprehensive sample payload examples/dhcp-offer.json and embed expandable JSON in README
 * Add comprehensive Python library documentation and usage guide (docs/library-usage.md)
@@ -45,8 +57,6 @@ This project adheres to [Semantic Versioning](http://semver.org/) and [Keep a Ch
 * Resolve decoding of RFC 3442 Classless Static Routes (Option 121) from Scapy string representations
 * Resolve standalone execution version resolution in cli.py to prevent version drift when invoked via symlink
 * Quiet Scapy internal runtime log warnings on Layer 3 tunnel interfaces during normal operation
-
-### Breaks
 
 
 ## 0.1.1 - (2026-10-02)
